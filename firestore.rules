@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Specific match for our state document
+    match /app_state/timetable_state {
+      allow read, write: if true;
+    }
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

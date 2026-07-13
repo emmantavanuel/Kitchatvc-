@@ -1,0 +1,107 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+}
+
+/* Custom styles for printing */
+@media print {
+  @page {
+    size: landscape;
+    margin: 0.22in !important;
+  }
+  
+  body {
+    background-color: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 11pt !important;
+  }
+  
+  header, nav, button, select, .print\:hidden, [id*="btn-"], [id*="tab-"] {
+    display: none !important;
+  }
+  
+  .print\:block {
+    display: block !important;
+  }
+  
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  
+  /* Tables formatting for maximum print space and border bolding */
+  .max-w-7xl, .container, .mx-auto {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Ensure overflow-visible so the whole table is printed without truncating */
+  .overflow-auto, .overflow-x-auto, .max-h-\[60vh\], .max-h-\[65vh\], .max-h-\[70vh\] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+  
+  th, td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 6px 6px !important;
+    page-break-inside: avoid;
+    word-break: break-word !important;
+  }
+  
+  th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 11pt !important;
+    font-weight: 600 !important;
+  }
+  
+  td {
+    font-size: 10.5pt !important;
+    font-weight: 500 !important;
+    background-color: transparent !important;
+  }
+
+  /* Make inner text blocks inside cells clearer and larger without being excessively dark */
+  td div, td span, td p, td strong {
+    font-size: 10.5pt !important;
+    line-height: 1.35 !important;
+  }
+
+  /* Target specific elements to boost text visibility */
+  td .font-mono, td .uppercase {
+    font-size: 11pt !important;
+  }
+
+  td .text-indigo-600, td .text-slate-400, td .text-slate-500, td .text-slate-600 {
+    font-size: 10.5pt !important;
+  }
+
+  td .text-\[9px\], td .text-\[10px\], td .text-xs {
+    font-size: 10pt !important;
+  }
+  
+  div {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+}

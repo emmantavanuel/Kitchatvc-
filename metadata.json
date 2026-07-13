@@ -1,0 +1,6 @@
+{
+  "name": "KITCHA College Timetable",
+  "description": "An interactive, multi-role timetable scheduler for KITCHA College supporting Admin, HOD, and Trainer views, with automatic scheduling, manual edits, and conflict resolution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

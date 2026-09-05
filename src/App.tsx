@@ -955,22 +955,22 @@ export default function App() {
 
       {/* Global Top Banner Workspace Switcher */}
       {currentUser.role !== 'student' ? (
-        <div className="bg-slate-950 text-slate-200 py-1.5 px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2.5 z-40 print:hidden shrink-0 border-b border-slate-800">
+        <div className="bg-slate-100 text-slate-700 py-1.5 px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2.5 z-40 print:hidden shrink-0 border-b border-slate-200 shadow-3xs">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[9px] bg-slate-800 text-indigo-400 font-bold px-1.5 py-0.5 rounded border border-slate-700 uppercase">
+              <span className="font-mono text-[9.5px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200 uppercase tracking-wide">
                 Active User
               </span>
-              <span className="text-slate-300 text-xs font-semibold">
-                {currentUser.name} ({currentUser.role.toUpperCase()})
+              <span className="text-slate-800 text-xs font-semibold">
+                {currentUser.name} <span className="text-slate-500 font-medium">({currentUser.role.toUpperCase()})</span>
               </span>
             </div>
 
             {/* Real-time Database Sync Indicator Badge */}
             <div className="hidden md:flex items-center">
               {syncStatus === 'saving' ? (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
-                  <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10.5px] font-bold">
+                  <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
                   <span>Saving to Database...</span>
                 </div>
               ) : syncStatus === 'error' ? (
@@ -979,20 +979,20 @@ export default function App() {
                     setIsErrorBannerDismissed(false);
                     saveStateToDatabaseImmediately();
                   }}
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/25 border border-red-500/50 text-red-300 hover:bg-red-500/35 hover:text-white text-[10px] font-bold transition-all cursor-pointer shadow-xs"
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 hover:text-red-900 text-[10.5px] font-bold transition-all cursor-pointer shadow-3xs"
                   title="Database connection error - Click to retry saving immediately"
                 >
-                  <CloudOff className="w-3 h-3 text-red-400 animate-pulse" />
+                  <CloudOff className="w-3 h-3 text-red-500 animate-pulse" />
                   <span>Database Error • Retry</span>
                 </button>
               ) : (
                 <div 
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] font-semibold"
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10.5px] font-semibold shadow-3xs"
                   title={lastSavedTime ? `Database Synced at ${lastSavedTime}` : "Database Connected & Synced"}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
                   <span>Database Synced</span>
-                  {lastSavedTime && <span className="text-emerald-400/60 text-[9px]">({lastSavedTime})</span>}
+                  {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime})</span>}
                 </div>
               )}
             </div>
@@ -1002,10 +1002,10 @@ export default function App() {
           <div className="flex items-center gap-1.5 text-xs font-black">
             <button
               onClick={() => setActiveWorkspace('timetable')}
-              className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs ${
+              className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold ${
                 activeWorkspace === 'timetable'
                   ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/80'
               }`}
             >
               📅 Academic Scheduling Workspace
@@ -1013,59 +1013,62 @@ export default function App() {
             
             <button
               onClick={() => setActiveWorkspace('finance')}
-              className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs flex items-center gap-1.5 ${
+              className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold flex items-center gap-1.5 ${
                 activeWorkspace === 'finance'
                   ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/80'
               }`}
             >
               {['finance_officer', 'principal'].includes(currentUser.role)
                 ? '💳 Fee & Finance System'
                 : '🎓 Academic Registry & Examinations'}
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             </button>
 
-            <span className="text-slate-700 px-1">|</span>
+            <span className="text-slate-300 px-1">|</span>
 
             <button
               onClick={handleLogout}
-              className="px-2.5 py-1 text-slate-400 hover:text-red-400 hover:bg-slate-900 rounded-xl transition-all cursor-pointer text-xs"
+              className="px-2.5 py-1 text-slate-600 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all cursor-pointer text-xs font-semibold"
             >
               Sign Out
             </button>
           </div>
         </div>
       ) : (
-        <div className="bg-slate-950 text-slate-200 py-1.5 px-4 sm:px-6 flex items-center justify-between z-40 print:hidden shrink-0 border-b border-slate-800">
+        <div className="bg-slate-100 text-slate-700 py-1.5 px-4 sm:px-6 flex items-center justify-between z-40 print:hidden shrink-0 border-b border-slate-200 shadow-3xs">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[9px] bg-indigo-600 text-white font-bold px-1.5 py-0.5 rounded uppercase">
+              <span className="font-mono text-[9.5px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-200 uppercase tracking-wide">
                 Student Portal
               </span>
-              <span className="text-slate-300 text-xs font-semibold">
-                {currentUser.name} ({currentUser.username})
+              <span className="text-slate-800 text-xs font-semibold">
+                {currentUser.name} <span className="text-slate-500 font-normal">({currentUser.username})</span>
               </span>
             </div>
 
             {/* Sync status for student */}
             <div className="hidden sm:flex items-center">
               {syncStatus === 'saving' ? (
-                <span className="text-[10px] text-amber-300 font-medium">Saving...</span>
+                <span className="text-[10px] text-amber-700 font-medium">Saving...</span>
               ) : syncStatus === 'error' ? (
                 <button 
                   onClick={() => saveStateToDatabaseImmediately()}
-                  className="text-[10px] text-red-400 hover:text-red-300 font-bold underline cursor-pointer"
+                  className="text-[10px] text-red-600 hover:text-red-800 font-bold underline cursor-pointer"
                 >
                   Sync Error (Retry)
                 </button>
               ) : (
-                <span className="text-[10px] text-emerald-400/80 font-medium">Synced</span>
+                <span className="text-[10.5px] text-emerald-700 font-semibold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                  Database Synced
+                </span>
               )}
             </div>
           </div>
           <button
             onClick={handleLogout}
-            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-3xs"
           >
             Sign Out
           </button>

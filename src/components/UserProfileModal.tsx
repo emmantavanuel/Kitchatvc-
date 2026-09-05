@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Department } from '../types';
+import { User, Department, Student } from '../types';
 import { X, Lock, Mail, Phone, Shield, User as UserIcon, Save, Eye, EyeOff, IdCard, Hash } from 'lucide-react';
 
 interface UserProfileModalProps {
@@ -9,6 +9,8 @@ interface UserProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveUsers: (updatedUsers: User[]) => void;
+  students?: Student[];
+  onSaveStudents?: (updatedStudents: Student[]) => void;
 }
 
 export default function UserProfileModal({
@@ -18,6 +20,8 @@ export default function UserProfileModal({
   isOpen,
   onClose,
   onSaveUsers,
+  students,
+  onSaveStudents
 }: UserProfileModalProps) {
   const [name, setName] = useState(currentUser.name || '');
   const [username, setUsername] = useState(currentUser.username || '');
@@ -78,6 +82,28 @@ export default function UserProfileModal({
     });
 
     onSaveUsers(updatedUsers);
+
+    // Sync student profile record if currentUser is a student
+    if (currentUser.role === 'student' && students && onSaveStudents) {
+      const updatedStudents = students.map(s => {
+        if (
+          s.regNumber.toUpperCase() === currentUser.username.toUpperCase() ||
+          s.regNumber.toUpperCase() === currentUser.code?.toUpperCase() ||
+          s.name.toLowerCase() === currentUser.name.toLowerCase()
+        ) {
+          return {
+            ...s,
+            name: name.trim(),
+            email: email.trim() || s.email,
+            phone: phone.trim() || s.phone,
+            nationalId: nationalId.trim() || s.nationalId,
+          };
+        }
+        return s;
+      });
+      onSaveStudents(updatedStudents);
+    }
+
     setSuccess('Your profile has been updated successfully!');
     setTimeout(() => {
       onClose();
@@ -240,7 +266,7 @@ export default function UserProfileModal({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="e.g. user@kitchatvc.ac.ke"
+                  placeholder="e.g. user@kitcha.studio"
                   className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm"
                 />
               </div>

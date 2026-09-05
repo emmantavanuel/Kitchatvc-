@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "AppState": {
+      "title": "AppState",
+      "description": "Consolidated application state for Kitutu Chache TVC system",
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "object",
+          "description": "JSON object storing full application entities"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp when state was last saved"
+        }
+      },
+      "required": ["data", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/app_state/timetable_state": {
+      "schema": "AppState",
+      "description": "Master document storing application timetable and ERP state"
+    }
+  }
+}

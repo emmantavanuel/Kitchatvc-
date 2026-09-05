@@ -20,7 +20,7 @@ export default function Login({ onLogin, users, departments }: LoginProps) {
 
     const trimmedUsername = username.trim().toLowerCase();
     const foundUser = users.find(
-      u => u.username.toLowerCase() === trimmedUsername && u.password === password
+      u => (u.username.toLowerCase() === trimmedUsername || (u.code && u.code.toLowerCase() === trimmedUsername)) && u.password === password
     );
 
     if (!foundUser) {
@@ -54,7 +54,7 @@ export default function Login({ onLogin, users, departments }: LoginProps) {
             KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE
           </h2>
           <p className="mt-2 text-xs sm:text-sm font-semibold text-indigo-600 tracking-wider uppercase font-mono">
-            Smart Timetable System
+            Smart College ERP & Scheduling Suite
           </p>
         </div>
 
@@ -62,7 +62,7 @@ export default function Login({ onLogin, users, departments }: LoginProps) {
         <div className="bg-white rounded-3xl shadow-xl border border-slate-100 p-8 sm:p-10 transition-all duration-300 hover:shadow-2xl">
           <div className="mb-6">
             <h3 className="text-xl font-bold text-slate-800">Welcome Back</h3>
-            <p className="text-sm text-slate-400 mt-1">Please log in to your dashboard to manage your timetable</p>
+            <p className="text-sm text-slate-400 mt-1">Please log in to your dashboard to manage college operations and resources</p>
           </div>
 
           {error && (
@@ -124,7 +124,7 @@ export default function Login({ onLogin, users, departments }: LoginProps) {
           {/* Clean system stats layout inside the card to keep it professional */}
           <div className="mt-8 pt-6 border-t border-slate-100 grid grid-cols-3 gap-2.5 text-center text-xs">
             <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
-              <span className="block font-bold text-indigo-600 text-base">3</span>
+              <span className="block font-bold text-indigo-600 text-base">6</span>
               <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Roles</span>
             </div>
             <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">

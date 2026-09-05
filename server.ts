@@ -43,17 +43,37 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // DB Connection Status Check
+  app.get("/api/db-status", async (req, res) => {
+    if (!db) {
+      return res.json({ connected: false, message: "Firestore database not configured" });
+    }
+    try {
+      const docRef = doc(db, "app_state", "timetable_state");
+      await Promise.race([
+        getDoc(docRef),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Database connection ping timed out")), 5000))
+      ]);
+      res.json({ connected: true, message: "Database connection active" });
+    } catch (error: any) {
+      res.status(503).json({ connected: false, error: error?.message || "Database connection unavailable" });
+    }
+  });
+
   // GET State
   app.get("/api/state", async (req, res) => {
     try {
       let state = null;
 
-      // 1. Try fetching from Firestore first
+      // 1. Try fetching from Firestore first with 6s timeout
       if (db) {
         try {
           const docRef = doc(db, "app_state", "timetable_state");
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
+          const docSnap: any = await Promise.race([
+            getDoc(docRef),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timed out")), 6000))
+          ]);
+          if (docSnap && docSnap.exists()) {
             const docData = docSnap.data();
             if (docData && docData.data) {
               state = docData.data;
@@ -94,7 +114,7 @@ async function startServer() {
     }
   });
 
-  // POST State
+  // POST State (Instant saving with strict error detection)
   app.post("/api/state", async (req, res) => {
     try {
       const state = req.body;
@@ -102,27 +122,36 @@ async function startServer() {
       // 1. Always write to local file as backup
       try {
         fs.writeFileSync(stateFilePath, JSON.stringify(state, null, 2), 'utf-8');
-        console.log("[Local] Saved backup of state locally.");
       } catch (localWriteError) {
         console.error("[Local] Failed to write local state backup:", localWriteError);
       }
 
-      // 2. Write to Firestore for persistent, permanent saving in production/published system
+      // 2. Write to Firestore with immediate 6-second timeout
       if (db) {
         try {
           const docRef = doc(db, "app_state", "timetable_state");
-          await setDoc(docRef, { data: state, updatedAt: new Date().toISOString() });
-          console.log("[Firebase] Saved state to Firestore successfully.");
-        } catch (firestoreWriteError) {
-          console.error("[Firebase] Failed to save state to Firestore:", firestoreWriteError);
-          // Still succeed because the local backup was saved
+          await Promise.race([
+            setDoc(docRef, { data: state, updatedAt: new Date().toISOString() }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore database connection timed out")), 6000))
+          ]);
+          console.log("[Firebase] Saved state to Firestore database successfully.");
+          return res.json({ success: true, firestoreSaved: true, savedAt: new Date().toISOString() });
+        } catch (firestoreWriteError: any) {
+          console.error("[Firebase] Immediate write to Firestore failed:", firestoreWriteError);
+          // Return an immediate 503 so client gets instant notification of database connection error
+          return res.status(503).json({ 
+            success: false, 
+            firestoreSaved: false, 
+            error: `Database connection error: ${firestoreWriteError?.message || 'Failed to reach Firestore database'}`
+          });
         }
       }
 
-      res.json({ success: true });
-    } catch (error) {
+      // If no Firestore db configured, succeed in local mode
+      res.json({ success: true, firestoreSaved: false, localSaved: true });
+    } catch (error: any) {
       console.error("Failed to save state:", error);
-      res.status(500).json({ success: false, error: "Failed to save state" });
+      res.status(500).json({ success: false, error: error?.message || "Failed to save state to database" });
     }
   });
 

@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { 
-  User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict 
+  User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, CourseGroup 
 } from '../types';
+import { TIME_SLOTS } from '../data/seedData';
 import { 
   Users, Layers, GraduationCap, School, Calendar, LayoutGrid, BarChart3, Database,
   Plus, Edit2, Trash2, ShieldAlert, Key, ToggleLeft, ToggleRight, Download, Upload, CheckCircle2, XCircle,
-  Printer, FileDown
+  Printer, FileDown, BookOpen, Briefcase
 } from 'lucide-react';
-import { detectConflicts } from '../utils/scheduler';
+import { detectConflicts, buildCombinedCohorts, formatCombinedBadges, getMatchingEntriesForCohortCell } from '../utils/scheduler';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 import UserProfileModal from './UserProfileModal';
+import TrainerWorkloadReport from './TrainerWorkloadReport';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -18,6 +20,7 @@ interface AdminDashboardProps {
   courses: Course[];
   classrooms: Classroom[];
   units: Unit[];
+  courseGroups?: CourseGroup[];
   timetableEntries: TimetableEntry[];
   trainerPreferences: any[];
   academicSetting: AcademicSetting;
@@ -26,45 +29,65 @@ interface AdminDashboardProps {
   onUpdateCourses: (courses: Course[]) => void;
   onUpdateClassrooms: (rooms: Classroom[]) => void;
   onUpdateAcademicSetting: (setting: AcademicSetting) => void;
+  onUpdateCourseGroups?: (groups: CourseGroup[]) => void;
+  onUpdateTimetableEntries: (entries: TimetableEntry[]) => void;
+  onUpdateUnits: (units: Unit[]) => void;
   onImportState: (fullState: any) => void;
   onLogout: () => void;
   fullState: any;
 }
 
-type TabType = 'users' | 'departments' | 'courses' | 'classrooms' | 'academic' | 'global_timetables' | 'reports' | 'backup';
+type TabType = 'users' | 'departments' | 'courses' | 'classrooms' | 'units' | 'academic' | 'global_timetables' | 'reports' | 'trainer_workload' | 'backup';
 
 const PrintSignatureBlock = () => (
-  <div className="mt-8 pt-6 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-8 text-xs font-mono font-semibold text-slate-700 print:text-black print:mt-6 print:pt-4 break-inside-avoid">
-    {/* CONFIRMED BY */}
-    <div className="space-y-4">
-      <p className="font-bold text-slate-900 border-b border-slate-200 pb-1.5 uppercase tracking-wider print:border-black print:text-black">
-        CONFIRMED BY : Q/A
+  <div className="print-signature-block mt-4 pt-3 border-t border-slate-200 grid grid-cols-3 gap-4 text-xs font-mono font-semibold text-slate-700 print:text-black print:mt-1 print:pt-1.5 print:border-t-2 print:border-slate-800 print:gap-6 print:text-[9.5pt] break-inside-avoid print:break-inside-avoid shrink-0 print:pb-0">
+    {/* PREPARED BY */}
+    <div className="space-y-2 print:space-y-1">
+      <p className="font-bold text-slate-900 border-b border-slate-200 pb-1 uppercase tracking-wider print:border-black print:text-black print:text-[10pt] print:pb-0.5 whitespace-nowrap">
+        PREPARED BY : TIMETABLER
       </p>
-      <div className="space-y-3">
-        <div className="flex items-end">
-          <span className="shrink-0">Sign.:</span>
-          <span className="flex-1 ml-2 border-b border-slate-300 border-dashed print:border-black">&nbsp;</span>
+      <div className="space-y-2.5 print:space-y-1">
+        <div className="flex items-end print:h-7">
+          <span className="shrink-0 print:text-[10pt] print:font-bold">Sign.:</span>
+          <span className="flex-1 ml-2 border-b border-slate-400 border-dashed print:border-black print:border-b-2">&nbsp;</span>
         </div>
-        <div className="flex items-end">
-          <span className="shrink-0">Date:</span>
-          <span className="flex-1 ml-2 border-b border-slate-300 border-dashed print:border-black">&nbsp;</span>
+        <div className="flex items-end print:h-5">
+          <span className="shrink-0 print:text-[10pt] print:font-bold">Date:</span>
+          <span className="flex-1 ml-2 border-b border-slate-400 border-dashed print:border-black print:border-b-2">&nbsp;</span>
         </div>
       </div>
     </div>
 
     {/* APPROVED BY */}
-    <div className="space-y-4">
-      <p className="font-bold text-slate-900 border-b border-slate-200 pb-1.5 uppercase tracking-wider print:border-black print:text-black">
-        APPROVED BY : D/P ACADEMICS
+    <div className="space-y-2 print:space-y-1">
+      <p className="font-bold text-slate-900 border-b border-slate-200 pb-1 uppercase tracking-wider print:border-black print:text-black print:text-[10pt] print:pb-0.5 whitespace-nowrap">
+        APPROVED BY : Q/A
       </p>
-      <div className="space-y-3">
-        <div className="flex items-end">
-          <span className="shrink-0">Sign.:</span>
-          <span className="flex-1 ml-2 border-b border-slate-300 border-dashed print:border-black">&nbsp;</span>
+      <div className="space-y-2.5 print:space-y-1">
+        <div className="flex items-end print:h-7">
+          <span className="shrink-0 print:text-[10pt] print:font-bold">Sign.:</span>
+          <span className="flex-1 ml-2 border-b border-slate-400 border-dashed print:border-black print:border-b-2">&nbsp;</span>
         </div>
-        <div className="flex items-end">
-          <span className="shrink-0">Date:</span>
-          <span className="flex-1 ml-2 border-b border-slate-300 border-dashed print:border-black">&nbsp;</span>
+        <div className="flex items-end print:h-5">
+          <span className="shrink-0 print:text-[10pt] print:font-bold">Date:</span>
+          <span className="flex-1 ml-2 border-b border-slate-400 border-dashed print:border-black print:border-b-2">&nbsp;</span>
+        </div>
+      </div>
+    </div>
+
+    {/* CONFIRMED BY */}
+    <div className="space-y-2 print:space-y-1">
+      <p className="font-bold text-slate-900 border-b border-slate-200 pb-1 uppercase tracking-wider print:border-black print:text-black print:text-[10pt] print:pb-0.5 whitespace-nowrap">
+        CONFIRMED BY : D/P ACADEMICS
+      </p>
+      <div className="space-y-2.5 print:space-y-1">
+        <div className="flex items-end print:h-7">
+          <span className="shrink-0 print:text-[10pt] print:font-bold">Sign.:</span>
+          <span className="flex-1 ml-2 border-b border-slate-400 border-dashed print:border-black print:border-b-2">&nbsp;</span>
+        </div>
+        <div className="flex items-end print:h-5">
+          <span className="shrink-0 print:text-[10pt] print:font-bold">Date:</span>
+          <span className="flex-1 ml-2 border-b border-slate-400 border-dashed print:border-black print:border-b-2">&nbsp;</span>
         </div>
       </div>
     </div>
@@ -102,6 +125,8 @@ export default function AdminDashboard({
   onUpdateCourses,
   onUpdateClassrooms,
   onUpdateAcademicSetting,
+  onUpdateTimetableEntries,
+  onUpdateUnits,
   onImportState,
   onLogout,
   fullState
@@ -144,6 +169,10 @@ export default function AdminDashboard({
   const [printMasterPreview, setPrintMasterPreview] = useState(false);
   const [printTrainersPreview, setPrintTrainersPreview] = useState(false);
   const [printUnitsPreview, setPrintUnitsPreview] = useState(false);
+  const [userSubTab, setUserSubTab] = useState<'staff' | 'students'>('staff');
+  const [printStaffUsersPreview, setPrintStaffUsersPreview] = useState(false);
+  const [printStudentUsersPreview, setPrintStudentUsersPreview] = useState(false);
+  const [studentUserSearchQuery, setStudentUserSearchQuery] = useState('');
   const [unitsFilterDept, setUnitsFilterDept] = useState<string>('all');
   const [unitsFilterCourse, setUnitsFilterCourse] = useState<string>('all');
   const [unitsFilterModule, setUnitsFilterModule] = useState<string>('all');
@@ -152,6 +181,22 @@ export default function AdminDashboard({
   const [selectedDeptFilter, setSelectedDeptFilter] = useState('all');
   const [printLayoutMode, setPrintLayoutMode] = useState<'departmental' | 'combined_grid' | 'trainer_timetables'>('combined_grid');
   const [trainerSearchQuery, setTrainerSearchQuery] = useState('');
+
+  // States for Subject Units tab
+  const [showUnitModal, setShowUnitModal] = useState(false);
+  const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
+  const [unitForm, setUnitForm] = useState({
+    code: '',
+    name: '',
+    departmentId: '',
+    courseId: '',
+    module: 'Module 1',
+    slotsRequired: 1,
+    trainerId: ''
+  });
+  const [adminUnitFilterDept, setAdminUnitFilterDept] = useState<string>('all');
+  const [adminUnitFilterCourse, setAdminUnitFilterCourse] = useState<string>('all');
+  const [adminUnitFilterModule, setAdminUnitFilterModule] = useState<string>('all');
 
   // Backup state feedback
   const [backupMessage, setBackupMessage] = useState({ text: '', type: 'success' as 'success' | 'error' });
@@ -198,6 +243,7 @@ export default function AdminDashboard({
 
   const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
+    const isAcademic = ['trainer', 'hod'].includes(userForm.role);
     if (editingUser) {
       // Edit
       const updated = users.map(u => u.id === editingUser.id ? { 
@@ -206,10 +252,10 @@ export default function AdminDashboard({
         username: userForm.username,
         password: userForm.password,
         role: userForm.role,
-        departmentId: userForm.role === 'admin' ? undefined : userForm.departmentId,
+        departmentId: isAcademic ? userForm.departmentId : undefined,
         isActive: userForm.isActive,
-        code: userForm.role === 'admin' ? undefined : userForm.code.toUpperCase().trim(),
-        phone: userForm.role === 'admin' ? undefined : userForm.phone.trim(),
+        code: isAcademic ? userForm.code.toUpperCase().trim() : undefined,
+        phone: userForm.phone.trim(),
         email: userForm.email.trim(),
         nationalId: userForm.nationalId.trim(),
         pfNumber: userForm.pfNumber.trim()
@@ -223,10 +269,10 @@ export default function AdminDashboard({
         username: userForm.username.toLowerCase().trim(),
         password: userForm.password || 'password', // fallback
         role: userForm.role,
-        departmentId: userForm.role === 'admin' ? undefined : userForm.departmentId,
+        departmentId: isAcademic ? userForm.departmentId : undefined,
         isActive: userForm.isActive,
-        code: userForm.role === 'admin' ? undefined : userForm.code.toUpperCase().trim(),
-        phone: userForm.role === 'admin' ? undefined : userForm.phone.trim(),
+        code: isAcademic ? userForm.code.toUpperCase().trim() : undefined,
+        phone: userForm.phone.trim(),
         email: userForm.email.trim(),
         nationalId: userForm.nationalId.trim(),
         pfNumber: userForm.pfNumber.trim()
@@ -262,6 +308,27 @@ export default function AdminDashboard({
       const updated = users.map(u => u.id === user.id ? { ...u, password: newPass.trim() } : u);
       onUpdateUsers(updated);
       alert(`Password for ${user.username} successfully reset!`);
+    }
+  };
+
+  const handleResetDeptTimetable = (deptId: string) => {
+    const dept = departments.find(d => d.id === deptId);
+    if (!dept) return;
+
+    const count = timetableEntries.filter(e => e.departmentId === deptId).length;
+    if (count === 0) {
+      alert(`There are no scheduled sessions in the ${dept.name} department timetable.`);
+      return;
+    }
+
+    const firstConfirm = confirm(`[CRITICAL WARNING] Are you absolutely sure you want to completely RESET the timetable for the "${dept.name}" department?\n\nThis will permanently delete all ${count} scheduled slots. This action cannot be undone.`);
+    if (!firstConfirm) return;
+
+    const secondConfirm = confirm(`Please confirm once more. Type "OK" to proceed with clearing the "${dept.name}" department timetable.`);
+    if (secondConfirm) {
+      const remaining = timetableEntries.filter(e => e.departmentId !== deptId);
+      onUpdateTimetableEntries(remaining);
+      alert(`Successfully reset the timetable for "${dept.name}". All scheduled slots have been cleared, allowing HODs to start afresh.`);
     }
   };
 
@@ -381,6 +448,110 @@ export default function AdminDashboard({
     }
   };
 
+  // SUBJECT UNITS HANDLERS
+  const openUnitModal = (unit: Unit | null = null) => {
+    if (unit) {
+      setEditingUnit(unit);
+      setUnitForm({
+        code: unit.code,
+        name: unit.name,
+        departmentId: unit.departmentId,
+        courseId: unit.courseId,
+        module: unit.module || 'Module 1',
+        slotsRequired: unit.slotsRequired || 1,
+        trainerId: unit.trainerId || ''
+      });
+    } else {
+      setEditingUnit(null);
+      const defaultDeptId = departments[0]?.id || '';
+      const defaultCourseId = courses.find(c => c.departmentId === defaultDeptId)?.id || '';
+      setUnitForm({
+        code: '',
+        name: '',
+        departmentId: defaultDeptId,
+        courseId: defaultCourseId,
+        module: 'Module 1',
+        slotsRequired: 1,
+        trainerId: ''
+      });
+    }
+    setShowUnitModal(true);
+  };
+
+  const handleSaveUnit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unitForm.code.trim() || !unitForm.name.trim() || !unitForm.departmentId || !unitForm.courseId) {
+      alert("Please fill in all required fields (Code, Name, Department, and Course).");
+      return;
+    }
+
+    if (editingUnit) {
+      const updated = units.map(u => u.id === editingUnit.id ? {
+        ...u,
+        code: unitForm.code.toUpperCase().trim(),
+        name: unitForm.name.trim(),
+        departmentId: unitForm.departmentId,
+        courseId: unitForm.courseId,
+        module: unitForm.module,
+        slotsRequired: Number(unitForm.slotsRequired),
+        trainerId: unitForm.trainerId || undefined
+      } : u);
+      onUpdateUnits(updated);
+    } else {
+      const newUnit: Unit = {
+        id: `unit_${Date.now()}`,
+        code: unitForm.code.toUpperCase().trim(),
+        name: unitForm.name.trim(),
+        departmentId: unitForm.departmentId,
+        courseId: unitForm.courseId,
+        module: unitForm.module,
+        slotsRequired: Number(unitForm.slotsRequired),
+        trainerId: unitForm.trainerId || undefined
+      };
+      onUpdateUnits([...units, newUnit]);
+    }
+    setShowUnitModal(false);
+  };
+
+  const handleDeleteUnit = (id: string) => {
+    const targetUnit = units.find(u => u.id === id);
+    if (!targetUnit) return;
+
+    // Find companion units in department sharing this unit code (e.g. from multi-level sync)
+    const matchingCompanionUnits = units.filter(
+      u => u.departmentId === targetUnit.departmentId &&
+           u.code.trim().toUpperCase() === targetUnit.code.trim().toUpperCase()
+    );
+    const allMatchingUnitIds = Array.from(new Set([id, ...matchingCompanionUnits.map(u => u.id)]));
+    const scheduledEntries = timetableEntries.filter(e => allMatchingUnitIds.includes(e.unitId));
+    const publishedCount = scheduledEntries.filter(e => e.isPublished).length;
+
+    let confirmMsg = `Are you sure you want to delete subject unit "${targetUnit.code} - ${targetUnit.name}"?`;
+    if (scheduledEntries.length > 0) {
+      confirmMsg = `⚠️ Warning: "${targetUnit.code}" is currently scheduled in ${scheduledEntries.length} active timetable slot(s)` +
+        (publishedCount > 0 ? ` (${publishedCount} are already published on educator personal timetables)` : '') +
+        `.\n\nDeleting it will automatically delete all scheduled slots from the timetable schedule and personal timetables (even if already published) to ensure identical data all round.\n\nAre you sure you want to proceed?`;
+    }
+
+    if (confirm(confirmMsg)) {
+      onUpdateUnits(units.filter(u => !allMatchingUnitIds.includes(u.id)));
+      // Cascade delete: clean up all scheduled entries for this unit & companion units, draft AND published
+      if (scheduledEntries.length > 0) {
+        const remainingEntries = timetableEntries.filter(e => !allMatchingUnitIds.includes(e.unitId));
+        onUpdateTimetableEntries(remainingEntries);
+      }
+    }
+  };
+
+  const handleFormDeptChange = (deptId: string) => {
+    const filteredCourses = courses.filter(c => c.departmentId === deptId);
+    setUnitForm(prev => ({
+      ...prev,
+      departmentId: deptId,
+      courseId: filteredCourses[0]?.id || ''
+    }));
+  };
+
   // BACKUP & RESTORE HANDLERS
   const handleBackupDownload = () => {
     try {
@@ -418,20 +589,69 @@ export default function AdminDashboard({
     fileReader.readAsText(file);
   };
 
+  const exportStaffUsersCSV = () => {
+    const staffUsers = users.filter(u => u.role !== 'student');
+    const headers = ["Staff Name", "Username ID", "Security Role", "Department Scope", "Access Code", "Phone", "Email", "Status"];
+    const rows = staffUsers.map(u => {
+      const dept = departments.find(d => d.id === u.departmentId);
+      return [
+        `"${u.name}"`,
+        `"${u.username}"`,
+        `"${u.role.toUpperCase()}"`,
+        `"${dept ? `${dept.name} (${dept.code})` : u.role === 'admin' ? 'Entire Institution' : 'N/A'}"`,
+        `"${u.code || ''}"`,
+        `"${u.phone || ''}"`,
+        `"${u.email || ''}"`,
+        `"${u.isActive ? 'Active' : 'Inactive'}"`
+      ];
+    });
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Staff_User_Accounts_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportStudentUsersCSV = () => {
+    const studentUsers = users.filter(u => u.role === 'student');
+    const headers = ["Student Name", "Reg Number / Username", "Role", "Access Code", "Status"];
+    const rows = studentUsers.map(u => [
+      `"${u.name}"`,
+      `"${u.username}"`,
+      `"STUDENT PORTAL"`,
+      `"${u.code || u.username}"`,
+      `"${u.isActive ? 'Active' : 'Deactivated'}"`
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Student_Portal_Accounts_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // RENDER REPORT UTILITY METRICS
   const getTrainerWorkload = () => {
-    const load: { [trainerId: string]: number } = {};
+    const trainerSlots: { [trainerId: string]: Set<string> } = {};
     users.filter(u => u.role === 'trainer' || u.role === 'hod').forEach(t => {
-      load[t.id] = 0;
+      trainerSlots[t.id] = new Set<string>();
     });
     timetableEntries.forEach(entry => {
-      if (load[entry.trainerId] !== undefined) {
-        load[entry.trainerId] += 2; // Each slot counts as 2 hours
+      if (trainerSlots[entry.trainerId]) {
+        // Count simultaneous levels at same day and slot as a SINGLE slot (2 hours)
+        trainerSlots[entry.trainerId].add(`${entry.day}_${entry.slotId}`);
       }
     });
-    return Object.entries(load).map(([id, hours]) => {
+    return Object.entries(trainerSlots).map(([id, slotSet]) => {
       const trainer = users.find(u => u.id === id);
-      return { name: trainer?.name || 'Unknown', hours };
+      const slotCount = slotSet.size;
+      const hours = slotCount * 2; // Each unique slot = 2 hours
+      return { name: trainer?.name || 'Unknown', hours, slots: slotCount };
     });
   };
 
@@ -446,12 +666,7 @@ export default function AdminDashboard({
 
   // GLOBAL GRID HELPERS
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] as any[];
-  const timeSlots = [
-    { id: 1, label: '08:00 AM - 10:00 AM' },
-    { id: 2, label: '10:30 AM - 12:30 PM' },
-    { id: 3, label: '02:00 PM - 04:00 PM' },
-    { id: 4, label: '04:00 PM - 06:00 PM' }
-  ];
+  const timeSlots = TIME_SLOTS;
 
   const getFilteredEntries = () => {
     return timetableEntries.filter(e => {
@@ -463,10 +678,13 @@ export default function AdminDashboard({
   };
 
   const getCellContent = (day: string, slotId: number) => {
-    const match = getFilteredEntries().find(e => e.day === day && e.slotId === slotId);
+    const matches = getFilteredEntries().filter(e => e.day === day && e.slotId === slotId && units.some(u => u.id === e.unitId));
+    const match = matches[0];
     if (!match) return null;
 
     const unit = units.find(u => u.id === match.unitId);
+    if (!unit) return null;
+
     const trainer = users.find(u => u.id === match.trainerId);
     const room = classrooms.find(c => c.id === match.classroomId);
     const course = courses.find(c => c.id === match.courseId);
@@ -474,12 +692,28 @@ export default function AdminDashboard({
     // Check conflicts involving this specific cell
     const cellConflicts = totalConflicts.filter(c => c.affectedEntries.includes(match.id));
 
+    // Formatted levels
+    const getShortSem = (sem: string) => sem ? sem.replace(/Module\s*(\d+)/i, 'M$1').replace(/Semester\s*(\d+)/i, 'S$1') : 'M1';
+    const levelSet = new Set<string>();
+    matches.forEach(e => {
+      const c = courses.find(item => item.id === e.courseId);
+      const grp = e.groupName ? ` • ${e.groupName}` : '';
+      if (c) levelSet.add(`${c.code} (${getShortSem(e.semesterName)}${grp})`);
+    });
+
+    const levelBadges = Array.from(levelSet);
+    const levelsText = formatCombinedBadges(levelBadges);
+    const isCommon = levelBadges.length > 1;
+
     return {
       entry: match,
+      entries: matches,
       unit,
       trainer,
       room,
       course,
+      levelsText,
+      isCommon,
       conflicts: cellConflicts
     };
   };
@@ -615,6 +849,174 @@ export default function AdminDashboard({
     );
   }
 
+  if (printStaffUsersPreview) {
+    const staffList = users.filter(u => u.role !== 'student');
+    return (
+      <div className="min-h-screen bg-slate-100 p-3 sm:p-8 print:p-0 print:bg-white text-slate-800">
+        <div className="max-w-4xl mx-auto mb-6 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4 print:hidden">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600">
+              <Printer className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="font-bold font-display text-slate-800 text-sm">Staff & Academic User Accounts Report Preview</h1>
+              <p className="text-xs text-slate-400">Review official staff directory layout before printing.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs transition-all cursor-pointer shadow-md flex-1 sm:flex-none"
+            >
+              <Printer className="w-4 h-4" />
+              Print Report
+            </button>
+            <button
+              onClick={() => setPrintStaffUsersPreview(false)}
+              className="inline-flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white text-slate-600 font-semibold text-xs transition-all cursor-pointer flex-1 sm:flex-none"
+            >
+              Exit Preview
+            </button>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto bg-white p-4 sm:p-8 md:p-12 rounded-3xl border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
+          <div className="text-center pb-6 border-b-2 border-slate-800 mb-8 flex flex-col items-center justify-center">
+            <img src={kitchaLogo} alt="KITCHA TVC Logo" className="w-24 h-24 object-contain mb-3" referrerPolicy="no-referrer" />
+            <h1 className="text-xl font-bold font-display uppercase tracking-tight text-slate-950">KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE</h1>
+            <p className="text-xs uppercase font-mono tracking-widest text-indigo-600 font-bold mt-1.5">
+              OFFICIAL STAFF & FACULTY CREDENTIALS REPORT
+            </p>
+            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-700 font-semibold gap-2 max-w-lg mx-auto font-mono bg-slate-50 border border-slate-100 p-3 rounded-xl print:bg-transparent print:border-none">
+              <span>GENERATED BY: <span className="text-slate-900">{currentUser.name.toUpperCase()}</span></span>
+              <span>DATE: <span className="text-slate-900">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()}</span></span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto print:overflow-x-visible border border-slate-300 rounded-xl">
+            <table className="min-w-full divide-y divide-slate-300 text-left text-xs">
+              <thead className="bg-slate-50 font-bold font-mono text-slate-700 uppercase">
+                <tr>
+                  <th className="px-4 py-3 border-r border-slate-300">Staff Name</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Username ID</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Role</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Department Scope</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Phone / Email</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 font-medium text-slate-800">
+                {staffList.map((u) => {
+                  const dept = departments.find(d => d.id === u.departmentId);
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50/40">
+                      <td className="px-4 py-3 border-r border-slate-200 font-semibold text-slate-900">{u.name}</td>
+                      <td className="px-4 py-3 border-r border-slate-200 font-mono font-bold text-indigo-700">{u.username}</td>
+                      <td className="px-4 py-3 border-r border-slate-200 uppercase font-bold text-slate-700">{u.role}</td>
+                      <td className="px-4 py-3 border-r border-slate-200 text-slate-600">
+                        {u.role === 'admin' ? 'Entire Institution' : dept ? `${dept.name} (${dept.code})` : 'Unassigned'}
+                      </td>
+                      <td className="px-4 py-3 border-r border-slate-200 font-mono text-slate-600">
+                        {u.phone || u.email || '-'}
+                      </td>
+                      <td className="px-4 py-3 font-semibold">
+                        {u.isActive ? <span className="text-emerald-700">Active</span> : <span className="text-slate-400">Inactive</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <PrintSignatureBlock />
+        </div>
+      </div>
+    );
+  }
+
+  if (printStudentUsersPreview) {
+    const studentList = users.filter(u => u.role === 'student');
+    return (
+      <div className="min-h-screen bg-slate-100 p-3 sm:p-8 print:p-0 print:bg-white text-slate-800">
+        <div className="max-w-4xl mx-auto mb-6 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4 print:hidden">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600">
+              <Printer className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="font-bold font-display text-slate-800 text-sm">Student Portal Accounts Report Preview</h1>
+              <p className="text-xs text-slate-400">Review student login credentials directory before printing.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs transition-all cursor-pointer shadow-md flex-1 sm:flex-none"
+            >
+              <Printer className="w-4 h-4" />
+              Print Report
+            </button>
+            <button
+              onClick={() => setPrintStudentUsersPreview(false)}
+              className="inline-flex items-center justify-center gap-1.5 py-2 px-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-white text-slate-600 font-semibold text-xs transition-all cursor-pointer flex-1 sm:flex-none"
+            >
+              Exit Preview
+            </button>
+          </div>
+        </div>
+
+        <div className="max-w-4xl mx-auto bg-white p-4 sm:p-8 md:p-12 rounded-3xl border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
+          <div className="text-center pb-6 border-b-2 border-slate-800 mb-8 flex flex-col items-center justify-center">
+            <img src={kitchaLogo} alt="KITCHA TVC Logo" className="w-24 h-24 object-contain mb-3" referrerPolicy="no-referrer" />
+            <h1 className="text-xl font-bold font-display uppercase tracking-tight text-slate-950">KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE</h1>
+            <p className="text-xs uppercase font-mono tracking-widest text-indigo-600 font-bold mt-1.5">
+              PROVISIONED STUDENT PORTAL ACCESS ACCOUNTS REPORT
+            </p>
+            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-700 font-semibold gap-2 max-w-lg mx-auto font-mono bg-slate-50 border border-slate-100 p-3 rounded-xl print:bg-transparent print:border-none">
+              <span>PORTAL DOMAIN: <span className="text-indigo-700">kitcha.studio</span></span>
+              <span>DATE: <span className="text-slate-900">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()}</span></span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto print:overflow-x-visible border border-slate-300 rounded-xl">
+            <table className="min-w-full divide-y divide-slate-300 text-left text-xs">
+              <thead className="bg-slate-50 font-bold font-mono text-slate-700 uppercase">
+                <tr>
+                  <th className="px-4 py-3 border-r border-slate-300">#</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Student Name</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Registration Number / Username</th>
+                  <th className="px-4 py-3 border-r border-slate-300">Portal Access Scope</th>
+                  <th className="px-4 py-3">Account Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 font-medium text-slate-800">
+                {studentList.map((u, idx) => (
+                  <tr key={u.id} className="hover:bg-slate-50/40">
+                    <td className="px-4 py-3 border-r border-slate-200 font-mono text-slate-500">{idx + 1}</td>
+                    <td className="px-4 py-3 border-r border-slate-200 font-bold text-slate-900">{u.name}</td>
+                    <td className="px-4 py-3 border-r border-slate-200 font-mono font-bold text-indigo-700">{u.username}</td>
+                    <td className="px-4 py-3 border-r border-slate-200 uppercase font-semibold text-slate-600">STUDENT PORTAL ACCESS</td>
+                    <td className="px-4 py-3 font-semibold">
+                      {u.isActive ? <span className="text-emerald-700">Authorized</span> : <span className="text-slate-400">Deactivated</span>}
+                    </td>
+                  </tr>
+                ))}
+                {studentList.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400 italic">
+                      No student portal accounts provisioned yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <PrintSignatureBlock />
+        </div>
+      </div>
+    );
+  }
+
   if (printUnitsPreview) {
     const filtered = units.filter(u => {
       const matchDept = unitsFilterDept === 'all' || u.departmentId === unitsFilterDept;
@@ -683,6 +1085,7 @@ export default function AdminDashboard({
               <option value="Module 5">Module 5</option>
               <option value="Module 6">Module 6</option>
               <option value="Module 7">Module 7</option>
+              <option value="Module 8">Module 8</option>
               <option value="Unassigned">Unassigned Modules</option>
             </select>
 
@@ -844,48 +1247,15 @@ export default function AdminDashboard({
         .replace(/\s+/g, '');
     };
 
-    // Find all active (course, semester) combinations
-    const activeCohorts: Array<{
-      courseId: string;
-      semesterName: string;
-      courseCode: string;
-      courseName: string;
-      departmentId: string;
-      key: string;
-    }> = [];
-
-    const seenCohorts = new Set<string>();
-    timetableEntries.forEach(entry => {
-      const key = `${entry.courseId}_${entry.semesterName}`;
-      if (!seenCohorts.has(key)) {
-        seenCohorts.add(key);
-        const course = courses.find(c => c.id === entry.courseId);
-        if (course) {
-          activeCohorts.push({
-            courseId: entry.courseId,
-            semesterName: entry.semesterName,
-            courseCode: course.code,
-            courseName: course.name,
-            departmentId: course.departmentId,
-            key
-          });
-        }
-      }
-    });
-
-    // Sort active cohorts by courseCode, then semester name
-    activeCohorts.sort((a, b) => {
-      if (a.courseCode !== b.courseCode) {
-        return a.courseCode.localeCompare(b.courseCode);
-      }
-      return a.semesterName.localeCompare(b.semesterName);
-    });
-
-    // Filter cohorts based on the chosen department filter
-    const filteredCohorts = activeCohorts.filter(cohort => {
-      if (selectedDeptFilter === 'all') return true;
-      return cohort.departmentId === selectedDeptFilter;
-    });
+    // Build combined cohorts (e.g. combining BT-L5 and BT-L6 into BT L5/L6 (M1) when unit & trainer match)
+    const filteredCohorts = buildCombinedCohorts(
+      timetableEntries,
+      courses,
+      units,
+      daysOfWeek,
+      timeSlots,
+      selectedDeptFilter
+    );
 
     return (
       <div className="min-h-screen bg-slate-100 p-3 sm:p-6 print:bg-white print:p-0 font-sans">
@@ -974,15 +1344,15 @@ export default function AdminDashboard({
 
         {/* Printable Master Document */}
         <div className="max-w-7xl mx-auto bg-white p-4 sm:p-8 md:p-12 rounded-3xl border border-slate-200 shadow-sm print:border-none print:shadow-none print:p-0">
-          <div className={`text-center pb-6 border-b-2 border-slate-800 mb-8 flex flex-col items-center justify-center ${printLayoutMode === 'trainer_timetables' ? 'print:hidden' : ''}`}>
+          <div className={`text-center pb-3 border-b-2 border-slate-800 mb-4 flex flex-col items-center justify-center print:pb-1.5 print:mb-2 print:border-b-2 print:border-black shrink-0 master-grid-header ${printLayoutMode === 'trainer_timetables' || printLayoutMode === 'departmental' ? 'print:hidden' : ''}`}>
             <img
               src={kitchaLogo}
               alt="KITCHA TVC Logo"
-              className="w-24 h-24 object-contain mb-3"
+              className="w-16 h-16 object-contain mb-2 print:w-11 print:h-11 print:mb-0.5"
               referrerPolicy="no-referrer"
             />
-            <h1 className="text-2xl font-bold font-display uppercase tracking-tight text-slate-950">KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE</h1>
-            <p className="text-xs uppercase font-mono tracking-widest text-indigo-600 font-bold mt-1.5">
+            <h1 className="text-xl sm:text-2xl font-bold font-display uppercase tracking-tight text-slate-950 print:text-[12.5pt] print:leading-tight">KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE</h1>
+            <p className="text-xs uppercase font-mono tracking-widest text-indigo-600 font-bold mt-1 print:text-[8.5pt] print:mt-0.5 print:text-indigo-900">
               {printLayoutMode === 'combined_grid' 
                 ? 'Combined School-Wide Master Timetable Grid' 
                 : printLayoutMode === 'trainer_timetables'
@@ -990,7 +1360,7 @@ export default function AdminDashboard({
                   : 'Departmental Master Timetable Binder'
               }
             </p>
-            <div className="mt-4 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-700 font-semibold gap-2 max-w-2xl mx-auto font-mono bg-slate-50 border border-slate-100 p-3 rounded-xl print:bg-transparent print:border-none">
+            <div className="mt-2.5 flex flex-col sm:flex-row justify-between items-center text-xs text-slate-700 font-semibold gap-2 max-w-2xl mx-auto font-mono bg-slate-50 border border-slate-200 p-2.5 rounded-xl print:bg-slate-50 print:border print:border-slate-300 print:mt-1 print:p-1.5 print:text-[7.5pt] print:max-w-none print:w-full">
               <span>DEPARTMENTS: <span className="text-slate-900">{selectedDeptFilter === 'all' ? 'ALL DEPARTMENTS' : departments.find(d => d.id === selectedDeptFilter)?.name.toUpperCase()}</span></span>
               <span>ADMINISTRATOR: <span className="text-slate-900">{currentUser.name.toUpperCase()}</span></span>
               <span>ACADEMIC TERM: <span className="text-slate-900">{academicSetting.academicYear} - {academicSetting.semester}</span></span>
@@ -998,73 +1368,101 @@ export default function AdminDashboard({
           </div>
 
           {printLayoutMode === 'combined_grid' ? (
-            /* COMBINED COMPACT GRID VIEW */
-            <div className="space-y-6">
+            /* COMBINED COMPACT GRID VIEW - CONTINUOUS FLOW */
+            <div className="space-y-6 print:space-y-0 master-grid-container">
               {filteredCohorts.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 italic">
                   No active timetable schedule cohorts found matching the selected filters.
                 </div>
               ) : (
-                <div className="overflow-auto max-h-[65vh]">
-                  <table className="min-w-full border-collapse border border-slate-300 text-xs font-sans print:border-slate-850">
-                    <thead className="sticky top-0 z-10 bg-slate-100">
+                <div className="overflow-auto max-h-[75vh] print:max-h-none print:overflow-visible">
+                  <table className="min-w-full border-collapse border border-slate-200 text-xs font-sans print:border print:border-slate-400">
+                    <thead className="sticky top-0 z-10 bg-slate-100 print:static">
                       <tr className="bg-slate-100 print:bg-slate-200">
-                        <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-700 uppercase tracking-wider font-mono text-[11px] w-28 print:border-slate-800 print:text-black">Day</th>
-                        <th className="border border-slate-300 px-3 py-2 text-left font-bold text-slate-700 uppercase tracking-wider font-mono text-[11px] w-36 print:border-slate-800 print:text-black">Course</th>
+                        <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-700 uppercase tracking-wider font-mono text-[11px] w-28 print:border print:border-slate-400 print:text-black">Day</th>
+                        <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-700 uppercase tracking-wider font-mono text-[11px] w-36 print:border print:border-slate-400 print:text-black">Course</th>
                         {timeSlots.map(ts => (
-                          <th key={ts.id} className="border border-slate-300 px-3 py-2 text-center font-bold text-slate-700 uppercase tracking-wider font-mono text-[11px] print:border-slate-800 print:text-black">
+                          <th key={ts.id} className="border border-slate-200 px-3 py-2 text-center font-bold text-slate-700 uppercase tracking-wider font-mono text-[11px] print:border print:border-slate-400 print:text-black">
                             Slot {ts.id}
                             <span className="block font-sans text-[9px] font-normal text-slate-500 capitalize print:text-slate-600">{ts.label}</span>
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200 print:divide-slate-800">
-                      {daysOfWeek.map(day => {
-                        const rowCount = filteredCohorts.length;
-                        return filteredCohorts.map((cohort, index) => {
-                          const isFirstRow = index === 0;
-                          return (
-                            <tr key={`${day}_${cohort.key}`} className="hover:bg-slate-50/50">
-                              {isFirstRow && (
-                                <td 
-                                  rowSpan={rowCount} 
-                                  className="border border-slate-300 px-4 py-3 font-bold text-slate-900 bg-slate-50/80 align-middle text-sm text-center font-display uppercase tracking-wide print:border-slate-800 print:bg-slate-100 print:text-black print:font-bold"
-                                >
-                                  {day}
+                    <tbody className="divide-y divide-slate-200 print:divide-slate-400">
+                      {daysOfWeek.map(day => (
+                        <React.Fragment key={day}>
+                          <tr className="master-day-divider bg-slate-200 text-slate-800 print:bg-slate-200 print:text-slate-900 border-y border-slate-300">
+                            <td 
+                              colSpan={2 + timeSlots.length} 
+                              className="master-day-separator px-3 py-1 font-mono font-bold text-[11px] sm:text-xs uppercase tracking-wider text-left bg-slate-200 text-slate-800 print:bg-slate-200 print:text-slate-900"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold text-slate-900">{day.toUpperCase()}</span>
+                                <span className="text-[9.5px] font-semibold text-slate-600 print:text-slate-700 uppercase tracking-normal font-sans">
+                                  {filteredCohorts.length} {filteredCohorts.length === 1 ? 'Cohort' : 'Cohorts'}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                          {filteredCohorts.map((cohort, index) => {
+                            const isFirstRow = index === 0;
+                            return (
+                              <tr 
+                                key={`${day}_${cohort.key}`} 
+                                className="hover:bg-slate-50/50"
+                              >
+                                {isFirstRow && (
+                                  <td 
+                                    rowSpan={filteredCohorts.length}
+                                    className="master-day-vertical border-2 border-slate-300 px-1 py-2 font-black text-slate-900 bg-slate-100/90 align-middle text-center print:border print:border-slate-400 print:bg-slate-100 print:text-black w-12 min-w-[44px] max-w-[56px]"
+                                  >
+                                    <div className="master-day-vertical-text h-full min-h-full flex flex-col items-center justify-around font-black font-display text-lg sm:text-xl md:text-2xl print:text-2xl tracking-widest text-slate-950 select-none py-2 print:text-black">
+                                      {day.toUpperCase().split('').map((char, charIdx) => (
+                                        <span key={charIdx} className="my-0.5 sm:my-1 leading-none font-black text-slate-950 print:text-black">
+                                          {char}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                )}
+                                <td className="border border-slate-200 px-3 py-2.5 font-bold text-slate-800 font-mono bg-slate-50/20 print:border print:border-slate-400 print:text-black print:bg-transparent">
+                                  {cohort.courseCode} <span className="text-[10px] text-slate-500 font-sans font-normal">({getShortSemester(cohort.semesterName)}{cohort.groupName ? ` • ${cohort.groupName}` : ''})</span>
                                 </td>
-                              )}
-                              <td className="border border-slate-300 px-3 py-2.5 font-bold text-slate-800 font-mono bg-slate-50/20 print:border-slate-800 print:text-black print:bg-transparent">
-                                {cohort.courseCode} <span className="text-[10px] text-slate-500 font-sans font-normal">({getShortSemester(cohort.semesterName)})</span>
-                              </td>
                               {timeSlots.map(ts => {
-                                const entry = timetableEntries.find(
-                                  e => e.day === day && 
-                                       e.courseId === cohort.courseId && 
-                                       e.semesterName === cohort.semesterName && 
-                                       e.slotId === ts.id
-                                );
-                                const unit = entry ? units.find(u => u.id === entry.unitId) : null;
-                                const trainer = entry ? users.find(u => u.id === entry.trainerId) : null;
-                                const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
+                                const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units);
 
                                 return (
-                                  <td key={ts.id} className="border border-slate-300 px-2.5 py-2 align-middle text-center w-1/5 min-w-[130px] print:border-slate-800">
-                                    {entry ? (
+                                  <td key={ts.id} className="border border-slate-200 px-2.5 py-2 align-middle text-center w-1/5 min-w-[130px] print:border print:border-slate-400">
+                                    {matchingEntries.length > 0 ? (
                                       <div className="flex flex-col items-center justify-center space-y-1.5 py-0.5">
-                                        <div className="font-mono font-extrabold text-slate-950 text-xs sm:text-[13px] uppercase leading-tight print:text-[13.5px] print:font-black tracking-wide bg-slate-100/80 px-1.5 py-0.5 rounded border border-slate-200/50 print:bg-transparent print:border-none print:p-0">
-                                          {unit?.code || '?'}
-                                        </div>
-                                        <div className="text-[9.5px] font-bold text-indigo-600 print:text-black leading-none flex items-center justify-center gap-1 mt-0.5">
-                                          <span className="bg-indigo-50/80 text-indigo-700 px-1 py-0.5 rounded text-[8px] print:bg-transparent print:text-black print:p-0 print:font-bold">{getTrainerInitials(trainer?.name || '?', trainer || undefined)}</span>
-                                          <span className="text-slate-300 print:text-black">•</span>
-                                          <span className="bg-slate-50/80 text-slate-600 px-1 py-0.5 rounded text-[8px] print:bg-transparent print:text-black print:p-0 print:font-bold">{getRoomCode(room?.name || '?')}</span>
-                                        </div>
-                                        {!entry.isPublished && (
-                                          <span className="inline-block text-[8px] font-bold text-amber-600 uppercase font-mono px-1 border border-amber-100 bg-amber-50/60 rounded print:hidden">
-                                            Draft
-                                          </span>
-                                        )}
+                                        {matchingEntries.map((entry, idx) => {
+                                          const unit = units.find(u => u.id === entry.unitId);
+                                          const trainer = users.find(u => u.id === entry.trainerId);
+                                          const room = classrooms.find(c => c.id === entry.classroomId);
+                                          return (
+                                            <div key={entry.id || idx} className={`w-full ${idx > 0 ? 'border-t border-slate-200/80 pt-1.5' : ''}`}>
+                                              <div className="font-mono font-black text-slate-950 text-[14px] sm:text-[15px] uppercase leading-tight print:text-[14px] print:font-black tracking-wide bg-slate-100/80 px-1.5 py-0.5 rounded border border-slate-200/50 print:bg-transparent print:border-none print:p-0">
+                                                {unit?.code || '?'}
+                                              </div>
+                                              {(entry.groupName || entry.groupId) && (
+                                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 print:text-black print:border-none print:p-0 inline-block mt-0.5">
+                                                  {entry.groupName || 'Group'}
+                                                </span>
+                                              )}
+                                              <div className="text-[9.5px] font-bold text-indigo-600 print:text-black leading-none flex items-center justify-center gap-1 mt-0.5">
+                                                <span className="bg-indigo-50/80 text-indigo-700 px-1 py-0.5 rounded text-[8px] print:bg-transparent print:text-black print:p-0 print:font-bold">{getTrainerInitials(trainer?.name || '?', trainer || undefined)}</span>
+                                                <span className="text-slate-300 print:text-black">•</span>
+                                                <span className="bg-slate-50/80 text-slate-600 px-1 py-0.5 rounded text-[8px] print:bg-transparent print:text-slate-600 print:text-[7.5px] print:font-normal print:p-0">{getRoomCode(room?.name || '?')}</span>
+                                              </div>
+                                              {!entry.isPublished && (
+                                                <span className="inline-block text-[8px] font-bold text-amber-600 uppercase font-mono px-1 border border-amber-100 bg-amber-50/60 rounded print:hidden mt-0.5">
+                                                  Draft
+                                                </span>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     ) : (
                                       <span className="text-slate-300 italic block text-center py-2 print:hidden">No assigned classes</span>
@@ -1074,8 +1472,9 @@ export default function AdminDashboard({
                               })}
                             </tr>
                           );
-                        });
-                      })}
+                        })}
+                      </React.Fragment>
+                    ))}
                     </tbody>
                   </table>
                 </div>
@@ -1102,44 +1501,49 @@ export default function AdminDashboard({
                 }
 
                 return filteredTrainers.map((trainer, trainerIdx) => {
-                  const trainerClasses = timetableEntries.filter(e => e.trainerId === trainer.id);
+                  const trainerClasses = timetableEntries.filter(e => e.trainerId === trainer.id && units.some(u => u.id === e.unitId));
                   const trainerDept = departments.find(d => d.id === trainer.departmentId);
+                  const trainerSlots = new Set(trainerClasses.map(e => `${e.day}_${e.slotId}`)).size;
+                  const trainerHours = trainerSlots * 2;
 
                   return (
                     <div 
                       key={trainer.id} 
-                      className={`space-y-4 print:space-y-3 ${trainerIdx > 0 ? 'print:break-before-page print:pt-4' : 'print:pt-1'}`}
+                      className="space-y-4 personal-timetable-sheet"
                     >
                       {/* Individual Trainer Print Header with Logo and full metadata */}
-                      <div className="flex flex-col items-center justify-center text-center pb-3 border-b border-slate-300 mb-2 print:pb-2 print:mb-1">
+                      <div className="flex flex-col items-center justify-center text-center pb-2 border-b border-slate-300 mb-1 print:pb-1.5 print:mb-1 shrink-0">
                         <img
                           src={kitchaLogo}
                           alt="KITCHA TVC Logo"
-                          className="w-12 h-12 object-contain mb-1 print:w-10 print:h-10"
+                          className="w-12 h-12 object-contain mb-0.5"
                           referrerPolicy="no-referrer"
                         />
-                        <h2 className="text-base font-bold font-display uppercase tracking-tight text-slate-950 print:text-sm">
+                        <h2 className="text-base sm:text-lg font-bold font-display uppercase tracking-tight text-slate-950 print:text-base leading-tight">
                           KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE
                         </h2>
-                        <p className="text-[10px] uppercase font-mono tracking-widest text-indigo-600 font-bold mt-0.5">
-                          Personal Trainer Timetable Schedule
+                        <p className="text-[9.5px] uppercase font-mono tracking-wider text-slate-600 font-semibold mt-0.5">
+                          PERSONAL EDUCATOR TIMETABLE SCHEDULE
                         </p>
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-1.5 w-full text-[9px] text-slate-700 font-semibold font-mono bg-slate-50 border border-slate-100 p-2 rounded-xl print:bg-transparent print:border-none print:p-0 print:mt-1">
-                          <div className="text-center md:text-left">
-                            TRAINER: <span className="text-slate-900 font-bold">{trainer.name.toUpperCase()} {trainer.phone ? `• TEL: ${trainer.phone}` : ''}</span>
+                        <div className="mt-1 grid grid-cols-4 gap-2 text-[9.5px] font-bold text-slate-800 w-full max-w-2xl mx-auto border border-slate-400 py-0.5 px-2 rounded bg-slate-50">
+                          <div>
+                            TRAINER: {trainer.name.toUpperCase()}
                           </div>
-                          <div className="text-center">
-                            DEPARTMENT: <span className="text-slate-900 font-bold">{trainerDept ? trainerDept.name.toUpperCase() : 'NO DEPARTMENT'}</span>
+                          <div>
+                            DEPT: {trainerDept ? trainerDept.code : 'TECHNICAL'}
                           </div>
-                          <div className="text-center md:text-right">
-                            TERM & SEMESTER: <span className="text-slate-900 font-bold">{academicSetting.academicYear.toUpperCase()} - {academicSetting.semester.toUpperCase()}</span>
+                          <div>
+                            WORKLOAD: {trainerHours} HRS / WK ({trainerSlots} SLOTS)
+                          </div>
+                          <div>
+                            TERM: {academicSetting.academicYear} - {academicSetting.semester}
                           </div>
                         </div>
                       </div>
 
-                      <div className="bg-slate-50/30 p-3 rounded-2xl border border-slate-200/60 print:bg-transparent print:p-0 print:border-none">
-                        <div className="overflow-auto max-h-[60vh] print:max-h-none">
-                          <table className="min-w-full border-collapse border border-slate-200 text-xs font-sans print:border-slate-400">
+                      <div className="timetable-grid-wrap bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden print:border-none print:shadow-none my-auto">
+                        <div className="overflow-auto max-h-[60vh] print:max-h-none print:overflow-visible">
+                          <table className="min-w-full border-collapse border border-slate-200 text-xs font-sans print:border-slate-400 table-fixed">
                             <thead className="sticky top-0 z-10 bg-slate-100">
                               <tr className="bg-slate-100 print:bg-slate-200">
                                 <th className="border border-slate-200 px-2.5 py-1.5 text-left font-bold text-slate-600 uppercase tracking-wider font-mono w-24 print:border-slate-400 print:text-black print:py-1">Day</th>
@@ -1154,36 +1558,63 @@ export default function AdminDashboard({
                             <tbody>
                               {daysOfWeek.map(day => (
                                 <tr key={day} className="hover:bg-slate-50/50">
-                                  <td className="border border-slate-200 px-2.5 py-2 font-bold text-slate-800 bg-slate-50 print:border-slate-400 print:bg-slate-100 print:text-black print:py-1 print:px-1.5">{day}</td>
+                                  <td className="border border-slate-200 px-2.5 py-2 font-bold text-slate-800 bg-slate-50 print:border-slate-400 print:bg-slate-100 print:text-black print:py-2 print:px-2 print:text-sm print:font-black print:w-20 print:text-center align-middle">{day}</td>
                                   {timeSlots.map(ts => {
-                                    const entry = trainerClasses.find(e => e.day === day && e.slotId === ts.id);
+                                    const matchingEntries = trainerClasses.filter(e => e.day === day && e.slotId === ts.id);
+                                    const entry = matchingEntries[0];
                                     const unit = entry ? units.find(u => u.id === entry.unitId) : null;
                                     const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
-                                    const course = entry ? courses.find(c => c.id === entry.courseId) : null;
+
+                                    const levelSet = new Set<string>();
+                                    matchingEntries.forEach(e => {
+                                      const c = courses.find(item => item.id === e.courseId);
+                                      const code = c?.code || '?';
+                                      const sem = getShortSemester(e.semesterName);
+                                      const grp = e.groupName ? ` • ${e.groupName}` : '';
+                                      levelSet.add(`${code} (${sem}${grp})`);
+                                    });
+
+                                    const levelBadges = Array.from(levelSet);
+                                    const levelsText = formatCombinedBadges(levelBadges);
+                                    const isCommon = levelBadges.length > 1;
 
                                     return (
-                                      <td key={ts.id} className="border border-slate-200 px-2 py-2 align-top w-1/5 min-w-[130px] print:border-slate-400 print:py-1 print:px-1.5">
-                                        {entry ? (
+                                      <td key={ts.id} className="border border-slate-200 px-2 py-2 align-top w-1/5 min-w-[130px] print:border print:border-slate-400 print:p-1">
+                                        {entry && unit ? (
                                           <div className="space-y-1 text-center">
-                                            <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300">
-                                              <span className="font-mono font-extrabold text-[12px] sm:text-[13px] uppercase text-slate-950 print:text-[13.5px] print:font-black tracking-wider">
-                                                {unit?.code || '?'}
-                                              </span>
-                                              {!entry.isPublished && (
-                                                <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:border-slate-400 print:text-black print:bg-transparent">
+                                            <div className="flex items-start justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300 text-left">
+                                              <div className="leading-tight flex-1">
+                                                <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase text-slate-950 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
+                                                  {unit?.code || '?'}
+                                                </span>
+                                                {unit?.name && (
+                                                  <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
+                                                    ({unit.name})
+                                                  </span>
+                                                )}
+                                              </div>
+                                              {!entry.isPublished ? (
+                                                <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:hidden shrink-0">
                                                   Draft
                                                 </span>
-                                              )}
+                                              ) : isCommon ? (
+                                                <span className="text-[7px] font-bold text-purple-700 uppercase font-mono px-0.5 border border-purple-200 bg-purple-50 rounded print:hidden shrink-0">
+                                                  Common
+                                                </span>
+                                              ) : null}
                                             </div>
-                                            <div className="text-[9px] text-indigo-600 block print:text-black font-bold">
+                                            <div className="text-[9px] text-indigo-600 block print:text-slate-800 print:text-[8.5px] print:font-semibold print:leading-none">
                                               ROOM: {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}
                                             </div>
-                                            <div className="text-[8px] text-slate-500 block print:text-slate-800 font-medium">
-                                              {course?.code || '?'} ({getShortSemester(entry.semesterName)})
+                                            <div className={`text-[8px] block font-mono font-bold leading-tight mt-0.5 print:text-black print:text-[9.5px] ${isCommon ? 'text-indigo-900 bg-indigo-50/80 p-0.5 rounded border border-indigo-100 print:bg-transparent print:border-none print:p-0' : 'text-slate-600'}`}>
+                                              {levelsText || (courses.find(c => c.id === entry.courseId)?.code ? `${courses.find(c => c.id === entry.courseId)?.code} (${getShortSemester(entry.semesterName)})` : '?')}
                                             </div>
                                           </div>
                                         ) : (
-                                          <span className="text-slate-300 italic block text-center py-1.5 print:hidden">No assigned classes</span>
+                                          <div className="h-full flex items-center justify-center">
+                                            <span className="text-slate-300 italic block text-center py-1.5 print:hidden">No assigned classes</span>
+                                            <span className="hidden print:inline-block print:text-slate-400 print:text-[10px]">&mdash;</span>
+                                          </div>
                                         )}
                                       </td>
                                     );
@@ -1203,123 +1634,154 @@ export default function AdminDashboard({
           ) : (
             /* STANDARD DEPARTMENTAL PAGINATED VIEW */
             <div className="space-y-16">
-              {departments
-                .filter(d => selectedDeptFilter === 'all' || d.id === selectedDeptFilter)
-                .map(dept => {
-                  const deptCourses = courses.filter(c => c.departmentId === dept.id);
-                  
-                  const activeCourses = deptCourses.filter(course => {
-                    if (!hideEmptySemesters) return true;
-                    return timetableEntries.some(e => e.courseId === course.id);
+              {(() => {
+                const modulesToRender: {
+                  dept: Department;
+                  course: Course;
+                  sem: string;
+                }[] = [];
+
+                departments
+                  .filter(d => selectedDeptFilter === 'all' || d.id === selectedDeptFilter)
+                  .forEach(dept => {
+                    const deptCourses = courses.filter(c => c.departmentId === dept.id);
+                    deptCourses.forEach(course => {
+                      const semesters = ['Module 1', 'Module 2', 'Module 3', 'Module 4', 'Module 5', 'Module 6', 'Module 7', 'Module 8'].filter(sem => {
+                        if (!hideEmptySemesters) return true;
+                        return timetableEntries.some(e => e.courseId === course.id && e.semesterName === sem);
+                      });
+                      semesters.forEach(sem => {
+                        modulesToRender.push({ dept, course, sem });
+                      });
+                    });
                   });
 
-                  if (activeCourses.length === 0) {
-                    return null;
-                  }
-
+                if (modulesToRender.length === 0) {
                   return (
-                    <div key={dept.id} className="space-y-8 page-break-before-always">
-                      {/* Department Divider */}
-                      <div className="bg-slate-900 text-white p-4 rounded-xl flex justify-between items-center print:bg-slate-200 print:text-black print:border-b-2 print:border-black print:p-2 print:rounded-none">
-                        <h2 className="text-lg font-bold uppercase tracking-wide font-display">🏢 {dept.name} ({dept.code})</h2>
-                        <span className="text-xs font-mono font-semibold text-indigo-300 print:text-black">
-                          Department Master Section
-                        </span>
-                      </div>
-
-                      <div className="space-y-12">
-                        {activeCourses.map(course => {
-                          const semestersToRender = ['Module 1', 'Module 2', 'Module 3', 'Module 4', 'Module 5', 'Module 6', 'Module 7'].filter(sem => {
-                            if (!hideEmptySemesters) return true;
-                            return timetableEntries.some(e => e.courseId === course.id && e.semesterName === sem);
-                          });
-
-                          if (semestersToRender.length === 0) {
-                            return null;
-                          }
-
-                          return (
-                            <div key={course.id} className="space-y-6 break-inside-avoid">
-                              <div className="border-l-4 border-indigo-600 pl-4 py-1 print:border-slate-400">
-                                <h3 className="text-base font-bold text-slate-900 uppercase font-display">{course.name} ({course.code})</h3>
-                                <p className="text-xs text-slate-500 font-mono">Curriculum Schedule Grid</p>
-                              </div>
-
-                              {semestersToRender.map(sem => {
-                                return (
-                                  <div key={sem} className="bg-slate-50/30 p-5 rounded-2xl border border-slate-200/60 print:bg-transparent print:p-0 print:border-none space-y-3">
-                                    <div className="flex items-center justify-between border-b border-slate-100 pb-2 print:border-slate-300">
-                                      <span className="text-xs font-bold font-mono uppercase tracking-wider text-indigo-700 print:text-black">
-                                        📚 {sem}
-                                      </span>
-                                      <span className="text-[10px] font-mono text-slate-400 font-semibold print:hidden">
-                                        Total Assigned: {timetableEntries.filter(e => e.courseId === course.id && e.semesterName === sem).length} Classes
-                                      </span>
-                                    </div>
-
-                                    <div className="overflow-auto max-h-[60vh]">
-                                      <table className="min-w-full border-collapse border border-slate-200 text-xs font-sans print:border-slate-400">
-                                      <thead className="sticky top-0 z-10 bg-slate-100">
-                                        <tr className="bg-slate-100 print:bg-slate-200">
-                                          <th className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-600 uppercase tracking-wider font-mono w-24 print:border-slate-400 print:text-black">Day</th>
-                                          {timeSlots.map(ts => (
-                                            <th key={ts.id} className="border border-slate-200 px-3 py-2 text-left font-bold text-slate-600 uppercase tracking-wider font-mono print:border-slate-400 print:text-black">
-                                              Slot {ts.id}
-                                              <span className="block font-sans text-[9px] font-normal text-slate-400 capitalize print:text-slate-600">{ts.label}</span>
-                                            </th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {daysOfWeek.map(day => (
-                                          <tr key={day} className="hover:bg-slate-50/50">
-                                            <td className="border border-slate-200 px-3 py-2.5 font-bold text-slate-800 bg-slate-50 print:border-slate-400 print:bg-slate-100 print:text-black">{day}</td>
-                                            {timeSlots.map(ts => {
-                                              const entry = timetableEntries.find(e => e.courseId === course.id && e.semesterName === sem && e.day === day && e.slotId === ts.id);
-                                              const unit = entry ? units.find(u => u.id === entry.unitId) : null;
-                                              const trainer = entry ? users.find(u => u.id === entry.trainerId) : null;
-                                              const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
-
-                                              return (
-                                                <td key={ts.id} className="border border-slate-200 px-3 py-2.5 align-top w-1/5 min-w-[140px] print:border-slate-400">
-                                                  {entry ? (
-                                                    <div className="space-y-1">
-                                                      <div className="flex items-center justify-between gap-1">
-                                                        <span className="font-mono font-extrabold text-[12px] sm:text-[13px] uppercase text-slate-950 print:text-[13.5px] print:font-black tracking-wider bg-slate-100/60 px-1 py-0.5 rounded border border-slate-200/50 print:bg-transparent print:border-none print:p-0">
-                                                          {unit?.code}
-                                                        </span>
-                                                        {!entry.isPublished && (
-                                                          <span className="text-[8px] font-bold text-amber-600 uppercase font-mono px-1 border border-amber-200 bg-amber-50 rounded print:border-slate-400 print:text-black print:bg-transparent">
-                                                            Draft
-                                                          </span>
-                                                        )}
-                                                      </div>
-                                                      <div className="font-semibold text-slate-800 block leading-tight text-[11px] print:text-[10px]" title={unit?.name}>{unit?.name}</div>
-                                                      <div className="text-[9px] text-indigo-600 block print:text-black font-bold leading-none mt-1">👤 {getTrainerInitials(trainer?.name || '?', trainer || undefined)}</div>
-                                                      <div className="text-[9px] text-slate-500 block print:text-slate-700 font-semibold leading-none mt-0.5">🏢 {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}</div>
-                                                    </div>
-                                                  ) : (
-                                                    <span className="text-slate-300 italic block text-center py-2 print:hidden">No assigned classes</span>
-                                                  )}
-                                                </td>
-                                              );
-                                            })}
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                  <PrintSignatureBlock />
-                                </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
-                      </div>
+                    <div className="py-12 text-center text-slate-500 italic">
+                      No active departmental module schedules found matching the selected filters.
                     </div>
                   );
-                })}
+                }
+
+                return modulesToRender.map(({ dept, course, sem }) => {
+                  return (
+                    <div 
+                      key={`${dept.id}_${course.id}_${sem}`} 
+                      className="space-y-4 departmental-module-sheet"
+                    >
+                      {/* Individual Module Print Header */}
+                      <div className="flex flex-col items-center justify-center text-center pb-2 border-b border-slate-300 mb-1 print:pb-1.5 print:mb-1 shrink-0">
+                        <img
+                          src={kitchaLogo}
+                          alt="KITCHA TVC Logo"
+                          className="w-12 h-12 object-contain mb-0.5"
+                          referrerPolicy="no-referrer"
+                        />
+                        <h2 className="text-base sm:text-lg font-bold font-display uppercase tracking-tight text-slate-950 print:text-base leading-tight">
+                          KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE
+                        </h2>
+                        <p className="text-[9.5px] uppercase font-mono tracking-wider text-slate-600 font-semibold mt-0.5">
+                          DEPARTMENTAL PROGRAM TIMETABLE SCHEDULE
+                        </p>
+                        <div className="mt-1 grid grid-cols-4 gap-2 text-[9.5px] font-bold text-slate-800 w-full max-w-3xl mx-auto border border-slate-400 py-0.5 px-2 rounded bg-slate-50">
+                          <div>
+                            DEPT: {dept.name.toUpperCase()} ({dept.code})
+                          </div>
+                          <div>
+                            PROGRAM: {course.name.toUpperCase()} ({course.code})
+                          </div>
+                          <div>
+                            MODULE: {sem.toUpperCase()}
+                          </div>
+                          <div>
+                            TERM: {academicSetting.academicYear} - {academicSetting.semester}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Timetable Grid Container that stretches dynamically */}
+                      <div className="timetable-grid-wrap bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden print:border-none print:shadow-none my-auto">
+                        <div className="overflow-auto max-h-[60vh] print:max-h-none print:overflow-visible">
+                          <table className="min-w-full border-collapse border border-slate-200 text-xs font-sans print:border-slate-400 table-fixed">
+                            <thead className="sticky top-0 z-10 bg-slate-100">
+                              <tr className="bg-slate-100 print:bg-slate-200">
+                                <th className="border border-slate-200 px-2.5 py-1.5 text-left font-bold text-slate-600 uppercase tracking-wider font-mono w-24 print:border-slate-400 print:text-black print:py-1">Day</th>
+                                {timeSlots.map(ts => (
+                                  <th key={ts.id} className="border border-slate-200 px-2 py-1.5 text-center font-bold text-slate-600 uppercase tracking-wider font-mono print:border-slate-400 print:text-black print:py-1">
+                                    Slot {ts.id}
+                                    <span className="block font-sans text-[8px] font-normal text-slate-400 capitalize print:text-slate-600">{ts.label}</span>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {daysOfWeek.map(day => (
+                                <tr key={day} className="hover:bg-slate-50/50">
+                                  <td className="border border-slate-200 px-2.5 py-2 font-bold text-slate-800 bg-slate-50 print:border-slate-400 print:bg-slate-100 print:text-black print:py-2 print:px-2 print:text-sm print:font-black print:w-20 print:text-center align-middle">
+                                    {day}
+                                  </td>
+                                  {timeSlots.map(ts => {
+                                    const entry = timetableEntries.find(e => e.courseId === course.id && e.semesterName === sem && e.day === day && e.slotId === ts.id);
+                                    const unit = entry ? units.find(u => u.id === entry.unitId) : null;
+                                    const trainer = entry ? users.find(u => u.id === entry.trainerId) : null;
+                                    const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
+
+                                    return (
+                                      <td key={ts.id} className="border border-slate-200 px-2 py-2 align-top w-1/5 min-w-[130px] print:border print:border-slate-400 print:p-1">
+                                        {entry ? (
+                                          <div className="space-y-1 text-center">
+                                            <div className="flex items-start justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300 text-left">
+                                              <div className="leading-tight flex-1">
+                                                <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase text-slate-950 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
+                                                  {unit?.code || '?'}
+                                                </span>
+                                                {unit?.name && (
+                                                  <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
+                                                    ({unit.name})
+                                                  </span>
+                                                )}
+                                              </div>
+                                              {!entry.isPublished ? (
+                                                <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:hidden shrink-0">
+                                                  Draft
+                                                </span>
+                                              ) : null}
+                                            </div>
+                                            <div className="text-[9px] text-indigo-600 block print:text-black print:text-[9px] print:font-bold print:leading-none">
+                                              👤 {getTrainerInitials(trainer?.name || '?', trainer || undefined)} {trainer?.code ? `(${trainer.code})` : ''}
+                                            </div>
+                                            <div className="text-[9px] text-slate-500 block print:text-slate-700 print:text-[8px] print:font-medium print:leading-none mt-0.5">
+                                              🏢 {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}
+                                            </div>
+                                            {entry.groupName && (
+                                              <div className="text-[8px] font-bold font-mono text-indigo-800 print:text-black bg-indigo-50 px-1 py-0.5 rounded inline-block mt-0.5">
+                                                {entry.groupName}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <div className="h-full flex items-center justify-center">
+                                            <span className="text-slate-300 italic block text-center py-1.5 print:hidden">No assigned classes</span>
+                                            <span className="hidden print:inline-block print:text-slate-400 print:text-[10px]">&mdash;</span>
+                                          </div>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Signatures docked directly under the table */}
+                      <PrintSignatureBlock />
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </div>
@@ -1398,6 +1860,15 @@ export default function AdminDashboard({
           </button>
 
           <button 
+            onClick={() => setActiveTab('units')}
+            id="tab-units"
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left cursor-pointer ${activeTab === 'units' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+          >
+            <BookOpen className="w-4.5 h-4.5" />
+            Subject Units
+          </button>
+
+          <button 
             onClick={() => setActiveTab('classrooms')}
             id="tab-classrooms"
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left cursor-pointer ${activeTab === 'classrooms' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
@@ -1424,6 +1895,15 @@ export default function AdminDashboard({
           >
             <LayoutGrid className="w-4.5 h-4.5" />
             Global Timetables
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('trainer_workload')}
+            id="tab-trainer-workload"
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left cursor-pointer ${activeTab === 'trainer_workload' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+          >
+            <Briefcase className="w-4.5 h-4.5" />
+            Trainer Workload & Allocation
           </button>
 
           <button 
@@ -1495,138 +1975,294 @@ export default function AdminDashboard({
 
           {/* TAB 1: USER ACCOUNTS */}
           {activeTab === 'users' && (
-            <div id="section-users">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div id="section-users" className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-800 font-display">User Accounts Management</h2>
-                  <p className="text-sm text-slate-400 mt-0.5">Create and manage login credentials for Administrators, HODs, and Trainers.</p>
+                  <h2 className="text-2xl font-bold text-slate-800 font-display">User Accounts Directory</h2>
+                  <p className="text-sm text-slate-400 mt-0.5">Separate management for Staff/Faculty credentials and Student Portal access accounts.</p>
                 </div>
                 <div className="flex flex-wrap gap-2.5">
-                  <button
-                    onClick={() => setPrintTrainersPreview(true)}
-                    id="btn-print-trainers"
-                    className="inline-flex items-center gap-2 py-2 px-4 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-sm transition-all cursor-pointer shadow-3xs"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print Trainer Contacts
-                  </button>
-                  <button
-                    onClick={() => openUserModal()}
-                    id="btn-add-user"
-                    className="inline-flex items-center gap-2 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-sm transition-all shadow-sm cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add User Account
-                  </button>
+                  {userSubTab === 'staff' ? (
+                    <>
+                      <button
+                        onClick={() => setActiveTab('trainer_workload')}
+                        className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-all cursor-pointer shadow-3xs"
+                        title="View & Print Trainer Workload and Allocation Report"
+                      >
+                        <Briefcase className="w-4 h-4" />
+                        Workload &amp; Allocation
+                      </button>
+                      <button
+                        onClick={exportStaffUsersCSV}
+                        className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs transition-all cursor-pointer shadow-3xs"
+                      >
+                        <FileDown className="w-4 h-4" />
+                        Export Staff CSV
+                      </button>
+                      <button
+                        onClick={() => setPrintStaffUsersPreview(true)}
+                        className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-all cursor-pointer shadow-3xs"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print Staff Report
+                      </button>
+                      <button
+                        onClick={() => openUserModal()}
+                        id="btn-add-user"
+                        className="inline-flex items-center gap-2 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs transition-all shadow-sm cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Staff Account
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={exportStudentUsersCSV}
+                        className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs transition-all cursor-pointer shadow-3xs"
+                      >
+                        <FileDown className="w-4 h-4" />
+                        Export Student Accounts CSV
+                      </button>
+                      <button
+                        onClick={() => setPrintStudentUsersPreview(true)}
+                        className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition-all cursor-pointer shadow-3xs"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print Student Accounts Report
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-                <div className="overflow-auto max-h-[65vh]">
-                  <table className="min-w-full divide-y divide-slate-100">
-                  <thead className="bg-slate-50 sticky top-0 z-10 shadow-xs">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Name & Username</th>
-                      <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">System Role</th>
-                      <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Department Association</th>
-                      <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Status</th>
-                      <th className="px-6 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                    {users.map((u) => {
-                      const dept = departments.find(d => d.id === u.departmentId);
-                      return (
-                        <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div>
-                              <span className="font-semibold text-slate-800 block">{u.name}</span>
-                              <div className="space-y-0.5">
-                                <span className="text-xs text-slate-400 font-mono block">username: {u.username}</span>
-                                {u.code && (
-                                  <span className="text-[11px] text-indigo-600 font-bold font-mono block">timetable code: {u.code}</span>
-                                )}
-                                {u.phone && (
-                                  <span className="text-[11px] text-slate-500 font-medium font-mono block">phone: {u.phone}</span>
-                                )}
-                                {u.email && (
-                                  <span className="text-[11px] text-slate-500 font-medium font-mono block">email: {u.email}</span>
-                                )}
-                                {u.nationalId && (
-                                  <span className="text-[11px] text-slate-500 font-medium font-mono block">national ID: {u.nationalId}</span>
-                                )}
-                                {u.pfNumber && (
-                                  <span className="text-[11px] text-slate-500 font-medium font-mono block">PF number: {u.pfNumber}</span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 text-xs font-semibold rounded-full uppercase border ${
-                              u.role === 'admin' ? 'bg-red-50 text-red-700 border-red-100' : 
-                              u.role === 'hod' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                              'bg-blue-50 text-blue-700 border-blue-100'
-                            }`}>
-                              {u.role}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-slate-500">
-                            {u.role === 'admin' ? (
-                              <span className="text-slate-400 italic">Entire Institution</span>
-                            ) : (
-                              dept ? `${dept.name} (${dept.code})` : <span className="text-red-400">Not Assigned</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <button
-                              onClick={() => handleToggleUserActive(u)}
-                              className="focus:outline-none transition-transform active:scale-95 cursor-pointer"
-                              title={u.isActive ? "Deactivate User" : "Activate User"}
-                            >
-                              {u.isActive ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
-                                  <ToggleRight className="w-6 h-6 text-emerald-500 shrink-0" /> Active
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 font-semibold">
-                                  <ToggleLeft className="w-6 h-6 text-slate-300 shrink-0" /> Inactive
-                                </span>
-                              )}
-                            </button>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button 
-                                onClick={() => handleResetUserPassword(u)}
-                                className="p-1.5 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer"
-                                title="Reset Password"
-                              >
-                                <Key className="w-3.5 h-3.5" />
-                              </button>
-                              <button 
-                                onClick={() => openUserModal(u)}
-                                className="p-1.5 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-all cursor-pointer"
-                                title="Edit User Account"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteUser(u.id)}
-                                className="p-1.5 rounded-lg border border-slate-200 hover:border-red-500 hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all cursor-pointer"
-                                title="Delete User Account"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              {/* Sub-tab navigation toggle */}
+              <div className="flex bg-slate-100 p-1 rounded-2xl max-w-md">
+                <button
+                  onClick={() => setUserSubTab('staff')}
+                  className={`flex-1 py-2 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    userSubTab === 'staff'
+                      ? 'bg-white text-indigo-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  Staff & Administrative ({users.filter(u => u.role !== 'student').length})
+                </button>
+                <button
+                  onClick={() => setUserSubTab('students')}
+                  className={`flex-1 py-2 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    userSubTab === 'students'
+                      ? 'bg-white text-indigo-700 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <GraduationCap className="w-4 h-4" />
+                  Student Accounts ({users.filter(u => u.role === 'student').length})
+                </button>
               </div>
+
+              {/* STAFF ACCOUNTS TABLE */}
+              {userSubTab === 'staff' && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                  <div className="p-3.5 bg-slate-50/80 border-b border-slate-200 flex justify-between items-center text-xs font-bold text-slate-700">
+                    <span>Authorized Administrative & Teaching Staff Credentials</span>
+                    <span className="text-slate-400 font-normal">Isolated Staff Directory</span>
+                  </div>
+                  <div className="overflow-auto max-h-[65vh]">
+                    <table className="min-w-full divide-y divide-slate-100">
+                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-xs">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Staff Name & Username</th>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">System Role</th>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Department Scope</th>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Status</th>
+                          <th className="px-6 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                        {users.filter(u => u.role !== 'student').map((u) => {
+                          const dept = departments.find(d => d.id === u.departmentId);
+                          return (
+                            <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-4">
+                                <div>
+                                  <span className="font-semibold text-slate-800 block">{u.name}</span>
+                                  <div className="space-y-0.5 mt-0.5">
+                                    <span className="text-xs text-slate-400 font-mono block">username: {u.username}</span>
+                                    {u.code && (
+                                      <span className="text-[11px] text-indigo-600 font-bold font-mono block">timetable code: {u.code}</span>
+                                    )}
+                                    {u.phone && (
+                                      <span className="text-[11px] text-slate-500 font-medium font-mono block">phone: {u.phone}</span>
+                                    )}
+                                    {u.email && (
+                                      <span className="text-[11px] text-slate-500 font-medium font-mono block">email: {u.email}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`px-2.5 py-1 text-xs font-semibold rounded-full uppercase border ${
+                                  u.role === 'admin' ? 'bg-red-50 text-red-700 border-red-100' : 
+                                  u.role === 'manager' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                  u.role === 'hod' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
+                                  u.role === 'review' || (u.role as string) === 'reviewer' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                  u.role === 'trainer' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                                  'bg-purple-50 text-purple-700 border-purple-100'
+                                }`}>
+                                  {u.role === 'manager' ? 'Manager' : u.role === 'review' ? 'Reviewer' : u.role}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-slate-500">
+                                {u.role === 'admin' || u.role === 'manager' || u.role === 'review' || (u.role as string) === 'reviewer' ? (
+                                  <span className="text-slate-400 italic">Entire Institution</span>
+                                ) : (
+                                  dept ? `${dept.name} (${dept.code})` : <span className="text-red-400">Not Assigned</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => handleToggleUserActive(u)}
+                                  className="focus:outline-none transition-transform active:scale-95 cursor-pointer"
+                                  title={u.isActive ? "Deactivate User" : "Activate User"}
+                                >
+                                  {u.isActive ? (
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+                                      <ToggleRight className="w-6 h-6 text-emerald-500 shrink-0" /> Active
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 font-semibold">
+                                      <ToggleLeft className="w-6 h-6 text-slate-300 shrink-0" /> Inactive
+                                    </span>
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => handleResetUserPassword(u)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer"
+                                    title="Reset Password"
+                                  >
+                                    <Key className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => openUserModal(u)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-all cursor-pointer"
+                                    title="Edit User Account"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteUser(u.id)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-red-500 hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all cursor-pointer"
+                                    title="Delete User Account"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* STUDENT ACCOUNTS TABLE */}
+              {userSubTab === 'students' && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden space-y-4">
+                  <div className="p-3.5 bg-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <span className="text-xs font-bold text-slate-700">Provisioned Student Portal Credentials Directory</span>
+                    <input
+                      type="text"
+                      placeholder="Search student by name or reg number..."
+                      value={studentUserSearchQuery}
+                      onChange={(e) => setStudentUserSearchQuery(e.target.value)}
+                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs w-full sm:w-64 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="overflow-auto max-h-[65vh]">
+                    <table className="min-w-full divide-y divide-slate-100">
+                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-xs">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Student Name</th>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Reg Number / Username</th>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Role</th>
+                          <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Status</th>
+                          <th className="px-6 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                        {users
+                          .filter(u => u.role === 'student')
+                          .filter(u => 
+                            !studentUserSearchQuery ||
+                            u.name.toLowerCase().includes(studentUserSearchQuery.toLowerCase()) ||
+                            u.username.toLowerCase().includes(studentUserSearchQuery.toLowerCase())
+                          )
+                          .map((u) => (
+                            <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-4 font-bold text-slate-900">{u.name}</td>
+                              <td className="px-6 py-4 font-mono font-bold text-indigo-700">{u.username}</td>
+                              <td className="px-6 py-4">
+                                <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                  STUDENT PORTAL
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => handleToggleUserActive(u)}
+                                  className="focus:outline-none transition-transform active:scale-95 cursor-pointer"
+                                  title={u.isActive ? "Deactivate Account" : "Authorize Account"}
+                                >
+                                  {u.isActive ? (
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 font-semibold">
+                                      <ToggleRight className="w-6 h-6 text-emerald-500 shrink-0" /> Authorized
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-400 font-semibold">
+                                      <ToggleLeft className="w-6 h-6 text-slate-300 shrink-0" /> Deactivated
+                                    </span>
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => handleResetUserPassword(u)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-all cursor-pointer"
+                                    title="Reset Password"
+                                  >
+                                    <Key className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteUser(u.id)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-red-500 hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all cursor-pointer"
+                                    title="Delete Student Portal Account"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        {users.filter(u => u.role === 'student').length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="py-12 text-center text-slate-400 text-xs">
+                              No student portal accounts provisioned yet. Student accounts are created when students enroll or access the portal.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
           )}
 
           {/* TAB 2: DEPARTMENTS */}
@@ -1843,6 +2479,186 @@ export default function AdminDashboard({
             </div>
           )}
 
+          {/* TAB: SUBJECT UNITS MANAGEMENT (SUPER ADMIN) */}
+          {activeTab === 'units' && (
+            <div id="section-admin-units">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800 font-display">Curriculum Subject Units</h2>
+                  <p className="text-sm text-slate-400 mt-0.5">Manage the full academic curriculum by adding, editing, or removing Subject Units across departments and module sections.</p>
+                </div>
+                <button
+                  onClick={() => openUnitModal()}
+                  id="btn-admin-add-unit"
+                  className="inline-flex items-center gap-2 py-2 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-sm transition-all shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Subject Unit
+                </button>
+              </div>
+
+              {/* Filters Panel */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-3xs mb-6 grid grid-cols-1 sm:grid-cols-3 gap-4 print:hidden">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter Department</label>
+                  <select
+                    value={adminUnitFilterDept}
+                    onChange={(e) => {
+                      setAdminUnitFilterDept(e.target.value);
+                      setAdminUnitFilterCourse('all'); // Reset course filter on dept change
+                    }}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-slate-50/50 text-slate-700 text-xs focus:ring-1 focus:ring-indigo-500/20 focus:outline-none"
+                  >
+                    <option value="all">All Departments</option>
+                    {departments.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter Course / Program</label>
+                  <select
+                    value={adminUnitFilterCourse}
+                    onChange={(e) => setAdminUnitFilterCourse(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-slate-50/50 text-slate-700 text-xs focus:ring-1 focus:ring-indigo-500/20 focus:outline-none"
+                  >
+                    <option value="all">All Course Programs</option>
+                    {courses
+                      .filter(c => adminUnitFilterDept === 'all' || c.departmentId === adminUnitFilterDept)
+                      .map(c => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                      ))
+                    }
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter Module Section</label>
+                  <select
+                    value={adminUnitFilterModule}
+                    onChange={(e) => setAdminUnitFilterModule(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-slate-50/50 text-slate-700 text-xs focus:ring-1 focus:ring-indigo-500/20 focus:outline-none"
+                  >
+                    <option value="all">All Modules</option>
+                    <option value="Module 1">Module 1</option>
+                    <option value="Module 2">Module 2</option>
+                    <option value="Module 3">Module 3</option>
+                    <option value="Module 4">Module 4</option>
+                    <option value="Module 5">Module 5</option>
+                    <option value="Module 6">Module 6</option>
+                    <option value="Module 7">Module 7</option>
+                    <option value="Module 8">Module 8</option>
+                    <option value="Unassigned">Unassigned / General</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Units Table */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                <div className="overflow-auto max-h-[65vh]">
+                  <table className="min-w-full divide-y divide-slate-100">
+                    <thead className="bg-slate-50 sticky top-0 z-10 shadow-xs">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Code</th>
+                        <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Subject Name</th>
+                        <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Department & Course</th>
+                        <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Module Section</th>
+                        <th className="px-6 py-3 text-center text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Slots (Hrs)</th>
+                        <th className="px-6 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Trainer Assigned</th>
+                        <th className="px-6 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
+                      {(() => {
+                        const filtered = units.filter(u => {
+                          if (adminUnitFilterDept !== 'all' && u.departmentId !== adminUnitFilterDept) return false;
+                          if (adminUnitFilterCourse !== 'all' && u.courseId !== adminUnitFilterCourse) return false;
+                          if (adminUnitFilterModule !== 'all') {
+                            if (adminUnitFilterModule === 'Unassigned') {
+                              return !u.module;
+                            }
+                            return u.module === adminUnitFilterModule;
+                          }
+                          return true;
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">
+                                No subject units found matching the active filters. Click "Add Subject Unit" to begin populating the curriculum.
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filtered.map((u) => {
+                          const dept = departments.find(d => d.id === u.departmentId);
+                          const courseObj = courses.find(c => c.id === u.courseId);
+                          const trainerObj = users.find(usr => usr.id === u.trainerId);
+                          return (
+                            <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-4">
+                                <span className="font-mono font-bold text-slate-700 bg-slate-100 py-0.5 px-2 rounded text-xs border border-slate-200">
+                                  {u.code}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 font-semibold text-slate-800">{u.name}</td>
+                              <td className="px-6 py-4">
+                                <div className="text-xs text-slate-700 font-semibold">{courseObj ? courseObj.name : 'Unknown Course'}</div>
+                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wide mt-0.5">{dept ? dept.name : 'Unknown Dept'}</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`px-2 py-0.5 text-xs rounded-lg font-semibold ${
+                                  u.module 
+                                    ? 'bg-indigo-50 border border-indigo-100 text-indigo-700' 
+                                    : 'bg-slate-50 border border-slate-200 text-slate-500'
+                                }`}>
+                                  {u.module || 'Unassigned'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-center font-mono font-bold text-slate-800">
+                                {u.slotsRequired} ({u.slotsRequired * 2} hrs/wk)
+                              </td>
+                              <td className="px-6 py-4">
+                                {trainerObj ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                    <span className="font-medium text-slate-800">{trainerObj.name}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">({trainerObj.code})</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 italic">Unassigned</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button 
+                                    onClick={() => openUnitModal(u)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-blue-500 hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-all cursor-pointer"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteUnit(u.id)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:border-red-500 hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB 5: ACADEMIC SETTINGS */}
           {activeTab === 'academic' && (
             <div id="section-academic" className="max-w-xl">
@@ -1958,9 +2774,39 @@ export default function AdminDashboard({
                     <option value="Module 5">Module 5</option>
                     <option value="Module 6">Module 6</option>
                     <option value="Module 7">Module 7</option>
+                    <option value="Module 8">Module 8</option>
                   </select>
                 </div>
               </div>
+
+              {/* Reset Department's Timetable Action Card */}
+              {selectedDeptId && (
+                <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-rose-100 text-rose-700 rounded-xl mt-0.5">
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-rose-950">Reset Department Timetable</h4>
+                      <p className="text-xs text-rose-700 mt-0.5 leading-relaxed">
+                        There are currently <strong className="font-bold">{timetableEntries.filter(e => e.departmentId === selectedDeptId).length} scheduled slots</strong> for the <strong className="font-bold">{(departments.find(d => d.id === selectedDeptId))?.name || 'selected'}</strong> department. Cleared timetables let HODs start scheduling afresh.
+                      </p>
+                    </div>
+                  </div>
+                  {timetableEntries.filter(e => e.departmentId === selectedDeptId).length > 0 ? (
+                    <button
+                      onClick={() => handleResetDeptTimetable(selectedDeptId)}
+                      className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl transition-all shadow-sm cursor-pointer whitespace-nowrap"
+                    >
+                      Reset Department Schedule
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-400 font-medium italic select-none px-4 py-2.5 bg-slate-50 border border-slate-150 rounded-xl whitespace-nowrap">
+                      Schedule already empty
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Conflicts notification dashboard */}
               {totalConflicts.length > 0 && (
@@ -2014,7 +2860,7 @@ export default function AdminDashboard({
                                   }`}>
                                     <div>
                                       <div className="flex items-center justify-between gap-1 mb-1.5">
-                                        <span className="font-mono font-extrabold text-[12px] sm:text-[13px] uppercase text-slate-950 tracking-wider bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 truncate" title={data.unit?.name}>
+                                        <span className="font-mono font-black text-[14px] sm:text-[15px] print:text-[16px] print:font-black uppercase text-slate-950 tracking-wider bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 truncate" title={data.unit?.name}>
                                           {data.unit?.code}
                                         </span>
                                         <span className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-full uppercase shrink-0 ${
@@ -2029,10 +2875,16 @@ export default function AdminDashboard({
                                       <span className="text-[10px] text-indigo-600 block mt-1 truncate" title={data.trainer?.name}>
                                         👤 {data.trainer?.name}
                                       </span>
-                                      <span className="text-[10px] text-slate-500 block mt-0.5 truncate" title={data.room?.name}>
+                                      <span className="text-[10px] text-slate-500 block mt-0.5 truncate print:text-[6.5px] print:text-slate-500 print:font-normal" title={data.room?.name}>
                                         🏢 {data.room?.name}
                                       </span>
-                                      {selectedCourseId === '' && (
+                                      {data.isCommon ? (
+                                        <div className="mt-1.5 pt-1 border-t border-slate-100">
+                                          <span className="text-[8.5px] font-mono font-bold text-indigo-700 bg-indigo-50/80 px-1.5 py-0.5 rounded border border-indigo-100 block truncate" title={data.levelsText}>
+                                            {data.levelsText}
+                                          </span>
+                                        </div>
+                                      ) : selectedCourseId === '' && (
                                         <span className="text-[9px] text-slate-400 block mt-1 italic">
                                           Course: {data.course?.code}
                                         </span>
@@ -2075,10 +2927,20 @@ export default function AdminDashboard({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Trainer Hours */}
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
-                  <h3 className="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
-                    <Users className="w-5 h-5 text-indigo-500" />
-                    Trainer Weekly Teaching Load
-                  </h3>
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-500" />
+                      Trainer Weekly Teaching Load
+                    </h3>
+                    <button
+                      onClick={() => setActiveTab('trainer_workload')}
+                      id="btn-admin-reports-view-workload"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs border border-indigo-200 transition-all cursor-pointer"
+                    >
+                      <Briefcase className="w-3.5 h-3.5" />
+                      View &amp; Print Report
+                    </button>
+                  </div>
                   <div className="space-y-4">
                     {getTrainerWorkload().map((item, idx) => (
                       <div key={idx}>
@@ -2133,10 +2995,10 @@ export default function AdminDashboard({
                       Curriculum Subjects by Module Section
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Print or view the grouping of all {units.length} subjects in Kitutu Chache TVC curriculum, sorted by standard Module 1 through Module 7 sections.
+                      Print or view the grouping of all {units.length} subjects in Kitutu Chache TVC curriculum, sorted by standard Module 1 through Module 8 sections.
                     </p>
                     <div className="flex flex-wrap gap-2 pt-2">
-                      {['Module 1', 'Module 2', 'Module 3', 'Module 4', 'Module 5', 'Module 6', 'Module 7'].map(mod => {
+                      {['Module 1', 'Module 2', 'Module 3', 'Module 4', 'Module 5', 'Module 6', 'Module 7', 'Module 8'].map(mod => {
                         const count = units.filter(u => u.module === mod).length;
                         if (count === 0) return null;
                         return (
@@ -2163,6 +3025,24 @@ export default function AdminDashboard({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* TAB: TRAINER WORKLOAD & ALLOCATION */}
+          {activeTab === 'trainer_workload' && (
+            <div id="section-trainer-workload">
+              <TrainerWorkloadReport
+                currentUser={currentUser}
+                role="admin"
+                users={users}
+                departments={departments}
+                courses={courses}
+                classrooms={classrooms}
+                units={units}
+                timetableEntries={timetableEntries}
+                academicSetting={academicSetting}
+                onUpdateUsers={onUpdateUsers}
+              />
             </div>
           )}
 
@@ -2293,13 +3173,20 @@ export default function AdminDashboard({
                   onChange={(e) => setUserForm({ ...userForm, role: e.target.value as any })}
                   className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-700 text-sm"
                 >
+                  <option value="manager">Manager (Master Codes Grid, Dept & Trainer Timetables, Print)</option>
                   <option value="trainer">Trainer (Teacher)</option>
                   <option value="hod">Head of Department (HOD)</option>
+                  <option value="review">Reviewer / Review Officer (Timetable Review & Audit)</option>
                   <option value="admin">Administrator (Super Admin)</option>
+                  <option value="principal">Principal</option>
+                  <option value="registrar">Registrar (Admissions & Records)</option>
+                  <option value="finance_officer">Finance Officer (Ledger & Fees)</option>
+                  <option value="auditor">Auditor (Financial Auditing)</option>
+                  <option value="examinations_officer">Examinations Officer</option>
                 </select>
               </div>
 
-              {userForm.role !== 'admin' && (
+              {['trainer', 'hod'].includes(userForm.role) && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
                     {userForm.role === 'hod' ? 'Assigned Department' : 'Primary Department'}
@@ -2317,7 +3204,7 @@ export default function AdminDashboard({
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                {userForm.role !== 'admin' ? (
+                {['trainer', 'hod'].includes(userForm.role) ? (
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
                       Teacher Code
@@ -2332,7 +3219,7 @@ export default function AdminDashboard({
                     />
                   </div>
                 ) : null}
-                <div className={userForm.role === 'admin' ? "col-span-2" : ""}>
+                <div className={!['trainer', 'hod'].includes(userForm.role) ? "col-span-2" : ""}>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
                     Phone Number
                   </label>
@@ -2354,7 +3241,7 @@ export default function AdminDashboard({
                   type="email"
                   value={userForm.email}
                   onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
-                  placeholder="e.g. user@kitcha.ac.ke"
+                  placeholder="e.g. user@kitcha.studio"
                   className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm"
                 />
               </div>
@@ -2607,6 +3494,145 @@ export default function AdminDashboard({
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
                 >
                   Save Classroom
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SUBJECT UNIT ADMIN CRUD MODAL */}
+      {showUnitModal && (
+        <div id="modal-admin-unit" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden">
+            <div className="p-6 border-b border-slate-100">
+              <h3 className="font-bold font-display text-lg text-slate-800">
+                {editingUnit ? 'Edit Subject Unit' : 'Add New Subject Unit'}
+              </h3>
+            </div>
+
+            <form onSubmit={handleSaveUnit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Subject Code *</label>
+                  <input
+                    type="text"
+                    required
+                    value={unitForm.code}
+                    onChange={(e) => setUnitForm({ ...unitForm, code: e.target.value })}
+                    placeholder="e.g. ICT1101"
+                    className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm font-mono uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Slots Required *</label>
+                  <select
+                    value={unitForm.slotsRequired}
+                    onChange={(e) => setUnitForm({ ...unitForm, slotsRequired: Number(e.target.value) })}
+                    className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm font-semibold"
+                  >
+                    <option value={1}>1 Slot (2 Hours/wk)</option>
+                    <option value={2}>2 Slots (4 Hours/wk)</option>
+                    <option value={3}>3 Slots (6 Hours/wk)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Subject Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={unitForm.name}
+                  onChange={(e) => setUnitForm({ ...unitForm, name: e.target.value })}
+                  placeholder="e.g. Introduction to Programming"
+                  className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Department *</label>
+                <select
+                  value={unitForm.departmentId}
+                  onChange={(e) => handleFormDeptChange(e.target.value)}
+                  className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm"
+                >
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Course Program *</label>
+                <select
+                  value={unitForm.courseId}
+                  onChange={(e) => setUnitForm({ ...unitForm, courseId: e.target.value })}
+                  className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-850 text-sm"
+                >
+                  {courses
+                    .filter(c => c.departmentId === unitForm.departmentId)
+                    .map(c => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                    ))
+                  }
+                  {courses.filter(c => c.departmentId === unitForm.departmentId).length === 0 && (
+                    <option value="">-- No Courses in Selected Department --</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Module Section</label>
+                  <select
+                    value={unitForm.module}
+                    onChange={(e) => setUnitForm({ ...unitForm, module: e.target.value })}
+                    className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm"
+                  >
+                    <option value="">-- Unassigned --</option>
+                    <option value="Module 1">Module 1</option>
+                    <option value="Module 2">Module 2</option>
+                    <option value="Module 3">Module 3</option>
+                    <option value="Module 4">Module 4</option>
+                    <option value="Module 5">Module 5</option>
+                    <option value="Module 6">Module 6</option>
+                    <option value="Module 7">Module 7</option>
+                    <option value="Module 8">Module 8</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Pre-assigned Trainer</label>
+                  <select
+                    value={unitForm.trainerId}
+                    onChange={(e) => setUnitForm({ ...unitForm, trainerId: e.target.value })}
+                    className="block w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 text-slate-800 text-sm"
+                  >
+                    <option value="">-- Unassigned --</option>
+                    {users
+                      .filter(u => u.role === 'trainer' || u.role === 'hod')
+                      .map(u => (
+                        <option key={u.id} value={u.id}>{u.name} ({u.code})</option>
+                      ))
+                    }
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowUnitModal(false)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-all cursor-pointer bg-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Save Subject Unit
                 </button>
               </div>
             </form>

@@ -9,16 +9,28 @@
 /* Custom styles for printing */
 @media print {
   @page {
-    size: landscape;
-    margin: 0.22in !important;
+    size: A4 landscape;
+    margin: 4mm !important;
+  }
+
+  .transcript-portrait-print {
+    page: portraitPage;
+  }
+
+  @page portraitPage {
+    size: portrait !important;
+    margin: 4mm !important;
   }
   
-  body {
+  html, body {
     background-color: white !important;
     color: black !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    font-size: 11pt !important;
+    font-size: 10pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
   }
   
   header, nav, button, select, .print\:hidden, [id*="btn-"], [id*="tab-"] {
@@ -38,7 +50,7 @@
     border: none !important;
   }
   
-  /* Tables formatting for maximum print space and border bolding */
+  /* Tables formatting for maximum print space and border styling */
   .max-w-7xl, .container, .mx-auto {
     max-width: 100% !important;
     width: 100% !important;
@@ -47,7 +59,7 @@
   }
   
   /* Ensure overflow-visible so the whole table is printed without truncating */
-  .overflow-auto, .overflow-x-auto, .max-h-\[60vh\], .max-h-\[65vh\], .max-h-\[70vh\] {
+  .overflow-auto, .overflow-x-auto, .max-h-\[60vh\], .max-h-\[65vh\], .max-h-\[70vh\], .max-h-\[72vh\] {
     max-height: none !important;
     overflow: visible !important;
   }
@@ -57,13 +69,12 @@
     border-collapse: collapse !important;
     margin: 0 !important;
     padding: 0 !important;
-    border: 1px solid #cbd5e1 !important;
   }
   
   th, td {
-    border: 1px solid #cbd5e1 !important;
-    padding: 6px 6px !important;
-    page-break-inside: avoid;
+    border: 1px solid #000 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     word-break: break-word !important;
   }
   
@@ -71,33 +82,294 @@
     background-color: #f1f5f9 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    font-size: 11pt !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
   }
   
   td {
-    font-size: 10.5pt !important;
-    font-weight: 500 !important;
     background-color: transparent !important;
   }
 
-  /* Make inner text blocks inside cells clearer and larger without being excessively dark */
-  td div, td span, td p, td strong {
-    font-size: 10.5pt !important;
-    line-height: 1.35 !important;
+  /* Master Grid Continuous Print Layout: Strictly continuous flow with no day breaks */
+  .master-grid-header {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 2mm !important;
   }
 
-  /* Target specific elements to boost text visibility */
-  td .font-mono, td .uppercase {
+  .master-grid-container,
+  .master-grid-day-page {
+    width: 100% !important;
+    display: block !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .master-grid-container table,
+  .master-grid-day-page table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .master-grid-container thead,
+  .master-grid-day-page thead {
+    display: table-header-group !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .master-grid-container tbody,
+  .master-grid-day-page tbody {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .master-grid-container tr,
+  .master-grid-day-page tr {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Master Grid Day Divider and Separator Row */
+  tr.master-day-divider,
+  tr.master-day-divider td,
+  td.master-day-separator {
+    background-color: #e2e8f0 !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    padding: 0.8mm 2mm !important;
+    font-size: 8pt !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    border: 1px solid #cbd5e1 !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+    margin: 0 !important;
+  }
+
+  td.master-day-vertical {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    padding: 1.5mm 1mm !important;
+    border: 1px solid #cbd5e1 !important;
+    width: 14mm !important;
+    min-width: 14mm !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .master-day-vertical-text {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: space-around !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    font-size: 16pt !important;
+    font-weight: 900 !important;
+    line-height: 1.15 !important;
+    letter-spacing: 0.15em !important;
+    text-transform: uppercase !important;
+    color: #0f172a !important;
+  }
+
+  .master-day-vertical-text span {
+    display: block !important;
+    font-size: 16pt !important;
+    font-weight: 900 !important;
+    line-height: 1.15 !important;
+  }
+
+  .master-grid-container th,
+  .master-grid-container td,
+  .master-grid-day-page th,
+  .master-grid-day-page td {
+    padding: 1.2mm 1.8mm !important;
+    font-size: 8pt !important;
+    line-height: 1.15 !important;
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Single-page dynamic balancer for personal educator & departmental timetables on A4 Standard Landscape */
+  .personal-timetable-sheet,
+  .departmental-module-sheet {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    height: 201mm !important;
+    max-height: 201mm !important;
+    min-height: 201mm !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .personal-timetable-sheet:last-child,
+  .departmental-module-sheet:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Reset any space-y-* in print mode */
+  .personal-timetable-sheet > * + *,
+  .departmental-module-sheet > * + * {
+    margin-top: 0 !important;
+  }
+
+  .personal-timetable-sheet .timetable-grid-wrap,
+  .departmental-module-sheet .timetable-grid-wrap {
+    flex: 1 1 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+    height: 100% !important;
+    margin: 0.5mm 0 0 0 !important;
+    padding: 0 !important;
+  }
+
+  .personal-timetable-sheet table,
+  .departmental-module-sheet table {
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 1 auto !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    border: 1.5px solid #000 !important;
+    margin: 0 !important;
+  }
+
+  /* Column widths: Day column compact & centered, Slot columns wide and equal */
+  .personal-timetable-sheet th:first-child,
+  .departmental-module-sheet th:first-child,
+  .personal-timetable-sheet td:first-child,
+  .departmental-module-sheet td:first-child {
+    width: 28mm !important;
+    min-width: 28mm !important;
+    max-width: 30mm !important;
+    text-align: center !important;
+    font-weight: 800 !important;
     font-size: 11pt !important;
   }
 
-  td .text-indigo-600, td .text-slate-400, td .text-slate-500, td .text-slate-600 {
-    font-size: 10.5pt !important;
+  .personal-timetable-sheet th:not(:first-child),
+  .departmental-module-sheet th:not(:first-child),
+  .personal-timetable-sheet td:not(:first-child),
+  .departmental-module-sheet td:not(:first-child) {
+    width: calc((100% - 28mm) / 5) !important;
   }
 
-  td .text-\[9px\], td .text-\[10px\], td .text-xs {
-    font-size: 10pt !important;
+  .personal-timetable-sheet thead,
+  .departmental-module-sheet thead {
+    height: 7.5mm !important;
+    flex-shrink: 0 !important;
+  }
+
+  .personal-timetable-sheet thead tr,
+  .departmental-module-sheet thead tr {
+    height: 7.5mm !important;
+  }
+
+  .personal-timetable-sheet th,
+  .departmental-module-sheet th {
+    padding: 1mm 2mm !important;
+    font-size: 8.5pt !important;
+    vertical-align: middle !important;
+    border: 1px solid #000 !important;
+  }
+
+  .personal-timetable-sheet tbody,
+  .departmental-module-sheet tbody {
+    height: calc(100% - 7.5mm) !important;
+  }
+
+  /* Monday to Friday rows: Tall, expanded height (20% each) to evenly fill the page */
+  .personal-timetable-sheet tbody tr,
+  .departmental-module-sheet tbody tr {
+    height: 20% !important;
+    min-height: 28.5mm !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .personal-timetable-sheet td,
+  .departmental-module-sheet td {
+    padding: 1.5mm 2.5mm !important;
+    vertical-align: middle !important;
+    height: 20% !important;
+    min-height: 28.5mm !important;
+    border: 1px solid #000 !important;
+    box-sizing: border-box !important;
+  }
+
+  .personal-timetable-sheet td > div,
+  .departmental-module-sheet td > div {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    height: 100% !important;
+    min-height: 25.5mm !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Signatures docked flush directly below Friday row with no space after sign and date */
+  .print-signature-block {
+    margin-top: 1mm !important;
+    padding-top: 1.5mm !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+    border-top: 2px solid #000 !important;
+    flex-shrink: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
   
   div {

@@ -576,7 +576,13 @@ export default function FeeDashboard({
 
     // 2. Mark the application as approved (which maps to 'admitted' status in type system)
     const updatedApplications = admissionApplications.map(app => 
-      app.id === appId ? { ...app, status: 'admitted' as const } : app
+      app.id === appId ? { 
+        ...app, 
+        status: 'admitted' as const,
+        admissionNumber: nextRegNumber,
+        approvedDate: new Date().toISOString().split('T')[0],
+        approvedBy: currentUser.name || 'Academic Registrar'
+      } : app
     );
 
     // 4. Update the parent/local state

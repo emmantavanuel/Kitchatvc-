@@ -207,14 +207,32 @@ export interface AdmissionApplication {
   email: string;
   phone: string;
   courseId: string;
+  courseName?: string;
+  departmentName?: string;
   gender?: 'Male' | 'Female';
-  intake?: 'J' | 'M' | 'S'; // J = January, M = May, S = September
+  dob?: string;
+  intake?: 'J' | 'M' | 'S' | string; // J = January, M = May, S = September
   indexNumber?: string; // KCSE / KCPE Index Number
+  meanGrade?: string;
+  kcseYear?: string;
+  previousSchool?: string;
+  county?: string;
+  subCounty?: string;
+  postalAddress?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianRelation?: string;
+  modeOfStudy?: 'Full-Time' | 'Part-Time' | 'Evening' | string;
+  accommodation?: boolean;
   autoRegNumber?: string;
+  admissionNumber?: string; // Assigned when Registrar approves, e.g. KTTVC/ICT/2026/0001
   dateApplied: string;
   status: 'pending' | 'admitted' | 'rejected';
+  approvedDate?: string;
+  approvedBy?: string;
   nationalId?: string;
   sponsorType?: 'self' | 'government';
+  remarks?: string;
 }
 
 export interface ExamMark {

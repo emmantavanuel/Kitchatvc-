@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Cloud, CloudOff, RefreshCw, AlertTriangle, CheckCircle2, WifiOff, Database, X
+  Cloud, CloudOff, RefreshCw, AlertTriangle, CheckCircle2, WifiOff, Database, X, Globe, ArrowLeft, ArrowRight
 } from 'lucide-react';
 import { 
   User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, TrainerSlotPreference, CourseGroup,
@@ -20,6 +20,7 @@ import HodDashboard from './components/HodDashboard';
 import TrainerDashboard from './components/TrainerDashboard';
 import ReviewerDashboard from './components/ReviewerDashboard';
 import FeeDashboard from './components/FeeDashboard';
+import WebsiteFrontPage from './components/WebsiteFrontPage';
 
 // LocalStorage Cache Keys
 const STORAGE_PREFIX = 'kitcha_timetable_';
@@ -68,8 +69,9 @@ export default function App() {
   const [admissionApplications, setAdmissionApplications] = useState<AdmissionApplication[]>([]);
   const [examMarks, setExamMarks] = useState<ExamMark[]>([]);
 
-  // Workspace state
+  // Workspace and public website state
   const [activeWorkspace, setActiveWorkspace] = useState<'timetable' | 'finance'>('timetable');
+  const [currentView, setCurrentView] = useState<'website' | 'portal'>('website');
 
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -771,13 +773,55 @@ export default function App() {
     );
   }
 
-  // Not Logged In
+  // Public Website Front Page View
+  if (currentView === 'website') {
+    return (
+      <div className="flex flex-col min-h-screen">
+        {currentUser && (
+          <div className="bg-slate-900 text-white px-4 py-2 flex items-center justify-between text-xs sticky top-0 z-50 border-b border-slate-800 shadow-md">
+            <div className="flex items-center gap-2 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span>Signed in as <strong className="text-white">{currentUser.name}</strong> ({currentUser.role.toUpperCase()})</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setCurrentView('portal')}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Back to ERP Dashboard</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleLogout}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        )}
+        <WebsiteFrontPage 
+          onNavigateToPortal={() => setCurrentView('portal')}
+          applications={admissionApplications}
+          onAddApplication={(newApp) => updateAdmissionApplicationsState([newApp, ...admissionApplications])}
+          erpUsers={users}
+          erpDepartments={departments}
+        />
+      </div>
+    );
+  }
+
+  // Not Logged In (Portal Login Screen)
   if (!currentUser) {
     return (
       <Login 
-        onLogin={handleLogin} 
+        onLogin={(user) => {
+          handleLogin(user);
+          setCurrentView('portal');
+        }} 
         users={users} 
         departments={departments} 
+        onBackToWebsite={() => setCurrentView('website')}
       />
     );
   }
@@ -1001,6 +1045,17 @@ export default function App() {
           {/* Workspace Quick Toggles */}
           <div className="flex items-center gap-1.5 text-xs font-black">
             <button
+              onClick={() => setCurrentView('website')}
+              className="px-2.5 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold text-slate-700 hover:text-blue-800 hover:bg-slate-200/80 flex items-center gap-1"
+              title="Return to Public College Website"
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-600" />
+              <span>College Website</span>
+            </button>
+
+            <span className="text-slate-300 px-0.5">|</span>
+
+            <button
               onClick={() => setActiveWorkspace('timetable')}
               className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold ${
                 activeWorkspace === 'timetable'
@@ -1066,12 +1121,21 @@ export default function App() {
               )}
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-3xs"
-          >
-            Sign Out
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentView('website')}
+              className="px-2.5 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold text-slate-700 hover:text-blue-800 hover:bg-slate-200/80 flex items-center gap-1"
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-600" />
+              <span>College Website</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-3xs"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       )}
 

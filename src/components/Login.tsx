@@ -7,9 +7,10 @@ interface LoginProps {
   onLogin: (user: User) => void;
   users: User[];
   departments: { id: string; name: string }[];
+  onBackToWebsite?: () => void;
 }
 
-export default function Login({ onLogin, users, departments }: LoginProps) {
+export default function Login({ onLogin, users, departments, onBackToWebsite }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -37,7 +38,17 @@ export default function Login({ onLogin, users, departments }: LoginProps) {
   };
 
   return (
-    <div id="login-container" className="min-h-screen bg-slate-50 flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
+    <div id="login-container" className="min-h-screen bg-slate-50 flex flex-col justify-center items-center py-10 px-4 sm:px-6 lg:px-8 relative">
+      {onBackToWebsite && (
+        <div className="w-full max-w-md mb-4 flex justify-start">
+          <button
+            onClick={onBackToWebsite}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 hover:text-blue-800 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all shadow-sm"
+          >
+            ← Return to College Website
+          </button>
+        </div>
+      )}
       <div className="w-full max-w-md">
         
         {/* Header section with Logo & Titles */}

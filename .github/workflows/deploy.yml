@@ -1,0 +1,45 @@
+name: Deploy to HostPinnacle
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build-and-deploy:
+    name: Build & Auto-Deploy to HostPinnacle
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🔨 Build Production Application
+        run: npm run build
+
+      - name: 🔄 Signal Passenger to Restart Application
+        run: |
+          mkdir -p tmp
+          touch tmp/restart.txt
+
+      - name: 🚀 Deploy Files to HostPinnacle
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: /kitcha-app/
+          protocol: ftp
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.github/**

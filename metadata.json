@@ -1,5 +1,5 @@
 {
-  "name": "KITCHA College Timetable",
+  "name": "KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE",
   "description": "An interactive, multi-role timetable scheduler and ERP for KITCHA College supporting Admin, Manager, HOD, Review Officer, Trainer, Finance, and Student portals with module group separation, combined master grid, departmental pages, and trainer schedule printing.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

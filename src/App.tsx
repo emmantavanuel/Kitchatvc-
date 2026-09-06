@@ -27,6 +27,7 @@ import { loadApplicationState, saveApplicationState, testConnection } from './li
 
 // LocalStorage Cache Keys
 const STORAGE_PREFIX = 'kitcha_timetable_';
+const LAST_UPDATED_KEY = `${STORAGE_PREFIX}last_updated`;
 const KEYS = {
   USERS: `${STORAGE_PREFIX}users`,
   DEPARTMENTS: `${STORAGE_PREFIX}departments`,
@@ -48,6 +49,15 @@ const KEYS = {
   EXAM_MARKS: `${STORAGE_PREFIX}exam_marks`,
   WEBSITE_CONFIG: `${STORAGE_PREFIX}website_config`
 };
+
+// Resilient localStorage write wrapper
+function safeSetItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`[Storage Cache] Notice saving ${key}:`, err);
+  }
+}
 
 export default function App() {
   // Core database states
@@ -90,6 +100,9 @@ export default function App() {
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   const [isErrorBannerDismissed, setIsErrorBannerDismissed] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? (navigator.onLine ?? true) : true);
+
+  // Debounce timer ref for non-blocking seamless auto-saving
+  const autoSaveTimerRef = useRef<any>(null);
 
   // Synchronous ref to hold the absolute latest complete system state
   const stateRef = useRef<any>({
@@ -142,70 +155,125 @@ export default function App() {
     admissionApplications, examMarks
   ]);
 
-  // IMMEDIATE DATABASE SAVING FUNCTION (Synchronous local write + Direct Cloud Firestore replica)
+  // IMMEDIATE DATABASE SAVING FUNCTION (Synchronous local write + Thread-safe background cloud/server write)
   const saveStateToDatabaseImmediately = useCallback(async (stateOverride?: any) => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+
     const fullPayload = {
       ...stateRef.current,
       ...(stateOverride || {})
     };
 
+    if (stateOverride) {
+      stateRef.current = fullPayload;
+    }
+
     setSyncStatus('saving');
     setIsErrorBannerDismissed(false);
 
     // 1. Immediately cache all updated entities to localStorage synchronously
-    try {
-      if (fullPayload.users) localStorage.setItem(KEYS.USERS, JSON.stringify(fullPayload.users));
-      if (fullPayload.departments) localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(fullPayload.departments));
-      if (fullPayload.courses) localStorage.setItem(KEYS.COURSES, JSON.stringify(fullPayload.courses));
-      if (fullPayload.classrooms) localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(fullPayload.classrooms));
-      if (fullPayload.units) localStorage.setItem(KEYS.UNITS, JSON.stringify(fullPayload.units));
-      if (fullPayload.courseGroups) localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(fullPayload.courseGroups));
-      if (fullPayload.timetableEntries) localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(fullPayload.timetableEntries));
-      if (fullPayload.trainerPreferences) localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(fullPayload.trainerPreferences));
-      if (fullPayload.academicSetting) localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(fullPayload.academicSetting));
-      if (fullPayload.websiteConfig) localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(fullPayload.websiteConfig));
-      if (fullPayload.students) localStorage.setItem(KEYS.STUDENTS, JSON.stringify(fullPayload.students));
-      if (fullPayload.feeStructures) localStorage.setItem(KEYS.FEE_STRUCTURES, JSON.stringify(fullPayload.feeStructures));
-      if (fullPayload.invoices) localStorage.setItem(KEYS.INVOICES, JSON.stringify(fullPayload.invoices));
-      if (fullPayload.payments) localStorage.setItem(KEYS.PAYMENTS, JSON.stringify(fullPayload.payments));
-      if (fullPayload.installmentPlans) localStorage.setItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(fullPayload.installmentPlans));
-      if (fullPayload.feeAuditLogs) localStorage.setItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(fullPayload.feeAuditLogs));
-      if (fullPayload.admissionApplications) localStorage.setItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(fullPayload.admissionApplications));
-      if (fullPayload.examMarks) localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(fullPayload.examMarks));
-    } catch (cacheErr) {
-      console.warn("Local storage cache notice:", cacheErr);
-    }
+    const nowIso = new Date().toISOString();
+    safeSetItem(LAST_UPDATED_KEY, nowIso);
+    if (fullPayload.users) safeSetItem(KEYS.USERS, JSON.stringify(fullPayload.users));
+    if (fullPayload.departments) safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(fullPayload.departments));
+    if (fullPayload.courses) safeSetItem(KEYS.COURSES, JSON.stringify(fullPayload.courses));
+    if (fullPayload.classrooms) safeSetItem(KEYS.CLASSROOMS, JSON.stringify(fullPayload.classrooms));
+    if (fullPayload.units) safeSetItem(KEYS.UNITS, JSON.stringify(fullPayload.units));
+    if (fullPayload.courseGroups) safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(fullPayload.courseGroups));
+    if (fullPayload.timetableEntries) safeSetItem(KEYS.TIMETABLE, JSON.stringify(fullPayload.timetableEntries));
+    if (fullPayload.trainerPreferences) safeSetItem(KEYS.PREFERENCES, JSON.stringify(fullPayload.trainerPreferences));
+    if (fullPayload.academicSetting) safeSetItem(KEYS.ACADEMIC, JSON.stringify(fullPayload.academicSetting));
+    if (fullPayload.websiteConfig) safeSetItem(KEYS.WEBSITE_CONFIG, JSON.stringify(fullPayload.websiteConfig));
+    if (fullPayload.students) safeSetItem(KEYS.STUDENTS, JSON.stringify(fullPayload.students));
+    if (fullPayload.feeStructures) safeSetItem(KEYS.FEE_STRUCTURES, JSON.stringify(fullPayload.feeStructures));
+    if (fullPayload.invoices) safeSetItem(KEYS.INVOICES, JSON.stringify(fullPayload.invoices));
+    if (fullPayload.payments) safeSetItem(KEYS.PAYMENTS, JSON.stringify(fullPayload.payments));
+    if (fullPayload.installmentPlans) safeSetItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(fullPayload.installmentPlans));
+    if (fullPayload.feeAuditLogs) safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(fullPayload.feeAuditLogs));
+    if (fullPayload.admissionApplications) safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(fullPayload.admissionApplications));
+    if (fullPayload.examMarks) safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(fullPayload.examMarks));
 
     // 2. Check network connectivity
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setSyncStatus('error');
-      setSyncErrorMessage("Offline Mode: You are currently offline. Changes are saved locally on this computer and will sync to the cloud database when reconnected.");
-      return false;
+      setSyncErrorMessage("Offline Mode: You are currently offline. Changes are saved locally on this computer and will automatically sync when reconnected.");
+      return true;
     }
 
     // 3. Save to Firebase Cloud Firestore and local server
     try {
-      const result = await saveApplicationState(fullPayload);
-      if (result.success || result.firestoreSaved) {
-        setSyncStatus('synced');
-        setSyncErrorMessage(null);
-        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        return true;
-      } else {
-        // Cloud throttled or static hosting, but local storage is 100% saved
-        setSyncStatus('synced');
-        setSyncErrorMessage(null);
-        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Local)");
-        return true;
-      }
+      await saveApplicationState(fullPayload);
+      setSyncStatus('synced');
+      setSyncErrorMessage(null);
+      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      return true;
     } catch (err: any) {
-      console.warn('[Database Sync] Cloud sync notice:', err);
+      console.warn('[Database Sync] Notice:', err);
       // Local storage already safely holds all updates
       setSyncStatus('synced');
       setSyncErrorMessage(null);
-      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Local)");
+      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Saved Locally)");
       return true;
     }
+  }, []);
+
+  // AUTOMATIC DEBOUNCED SAVER (Batches multiple rapid updates without UI latency)
+  const triggerAutoSave = useCallback((stateOverride?: any) => {
+    if (stateOverride) {
+      stateRef.current = {
+        ...stateRef.current,
+        ...stateOverride
+      };
+      safeSetItem(LAST_UPDATED_KEY, new Date().toISOString());
+      if (stateOverride.users) safeSetItem(KEYS.USERS, JSON.stringify(stateOverride.users));
+      if (stateOverride.departments) safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(stateOverride.departments));
+      if (stateOverride.courses) safeSetItem(KEYS.COURSES, JSON.stringify(stateOverride.courses));
+      if (stateOverride.classrooms) safeSetItem(KEYS.CLASSROOMS, JSON.stringify(stateOverride.classrooms));
+      if (stateOverride.units) safeSetItem(KEYS.UNITS, JSON.stringify(stateOverride.units));
+      if (stateOverride.courseGroups) safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(stateOverride.courseGroups));
+      if (stateOverride.timetableEntries) safeSetItem(KEYS.TIMETABLE, JSON.stringify(stateOverride.timetableEntries));
+      if (stateOverride.trainerPreferences) safeSetItem(KEYS.PREFERENCES, JSON.stringify(stateOverride.trainerPreferences));
+      if (stateOverride.academicSetting) safeSetItem(KEYS.ACADEMIC, JSON.stringify(stateOverride.academicSetting));
+      if (stateOverride.websiteConfig) safeSetItem(KEYS.WEBSITE_CONFIG, JSON.stringify(stateOverride.websiteConfig));
+      if (stateOverride.students) safeSetItem(KEYS.STUDENTS, JSON.stringify(stateOverride.students));
+      if (stateOverride.feeStructures) safeSetItem(KEYS.FEE_STRUCTURES, JSON.stringify(stateOverride.feeStructures));
+      if (stateOverride.invoices) safeSetItem(KEYS.INVOICES, JSON.stringify(stateOverride.invoices));
+      if (stateOverride.payments) safeSetItem(KEYS.PAYMENTS, JSON.stringify(stateOverride.payments));
+      if (stateOverride.installmentPlans) safeSetItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(stateOverride.installmentPlans));
+      if (stateOverride.feeAuditLogs) safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(stateOverride.feeAuditLogs));
+      if (stateOverride.admissionApplications) safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(stateOverride.admissionApplications));
+      if (stateOverride.examMarks) safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(stateOverride.examMarks));
+    }
+
+    setSyncStatus('saving');
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      saveStateToDatabaseImmediately();
+    }, 350);
+  }, [saveStateToDatabaseImmediately]);
+
+  // Ensure state is flushed on page unload/navigation
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      try {
+        const payload = stateRef.current;
+        safeSetItem(LAST_UPDATED_KEY, new Date().toISOString());
+        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          navigator.sendBeacon('/api/state', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+        }
+      } catch (e) {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
 
   // Monitor network connection status automatically
@@ -242,7 +310,8 @@ export default function App() {
   useEffect(() => {
     const initializeData = async () => {
       try {
-        const loadedState = await loadApplicationState();
+        const localLastUpdated = localStorage.getItem(LAST_UPDATED_KEY);
+        const loadedState = await loadApplicationState(localLastUpdated);
 
         if (loadedState) {
           // Loaded successfully from Cloud Firestore or Server!
@@ -464,6 +533,9 @@ export default function App() {
           saveApplicationState(initialState);
         }
 
+        setSyncStatus('synced');
+        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
         // Validate Firestore connectivity in background (Firebase skill constraint)
         testConnection().catch(() => {});
 
@@ -552,11 +624,11 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // SYNCHRONIZED WRITING HELPERS (Instant local update + Immediate database persistence)
+  // SYNCHRONIZED WRITING HELPERS (Instant local update + Immediate debounced database persistence)
   const updateUsersState = (updated: User[]) => {
     setUsers(updated);
     stateRef.current.users = updated;
-    localStorage.setItem(KEYS.USERS, JSON.stringify(updated));
+    safeSetItem(KEYS.USERS, JSON.stringify(updated));
     // If current logged-in user details changed, update them
     if (currentUser) {
       const match = updated.find(u => u.id === currentUser.id);
@@ -565,38 +637,38 @@ export default function App() {
           handleLogout(); // Force logout if administrator deactivated account
         } else {
           setCurrentUser(match);
-          localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(match));
+          safeSetItem(KEYS.CURRENT_USER, JSON.stringify(match));
         }
       }
     }
-    saveStateToDatabaseImmediately({ users: updated });
+    triggerAutoSave({ users: updated });
   };
 
   const updateDepartmentsState = (updated: Department[]) => {
     setDepartments(updated);
     stateRef.current.departments = updated;
-    localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ departments: updated });
+    safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(updated));
+    triggerAutoSave({ departments: updated });
   };
 
   const updateCoursesState = (updated: Course[]) => {
     setCourses(updated);
     stateRef.current.courses = updated;
-    localStorage.setItem(KEYS.COURSES, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ courses: updated });
+    safeSetItem(KEYS.COURSES, JSON.stringify(updated));
+    triggerAutoSave({ courses: updated });
   };
 
   const updateClassroomsState = (updated: Classroom[]) => {
     setClassroom(updated);
     stateRef.current.classrooms = updated;
-    localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ classrooms: updated });
+    safeSetItem(KEYS.CLASSROOMS, JSON.stringify(updated));
+    triggerAutoSave({ classrooms: updated });
   };
 
   const updateUnitsState = (updated: Unit[]) => {
     setUnits(updated);
     stateRef.current.units = updated;
-    localStorage.setItem(KEYS.UNITS, JSON.stringify(updated));
+    safeSetItem(KEYS.UNITS, JSON.stringify(updated));
 
     // Cascade delete safety: ensure any scheduled timetable entries for deleted units are purged immediately
     // even if they were already published, keeping identical data all round.
@@ -605,103 +677,103 @@ export default function App() {
     if (cleanedEntries.length !== timetableEntries.length) {
       setTimetableEntries(cleanedEntries);
       stateRef.current.timetableEntries = cleanedEntries;
-      localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(cleanedEntries));
-      saveStateToDatabaseImmediately({ units: updated, timetableEntries: cleanedEntries });
+      safeSetItem(KEYS.TIMETABLE, JSON.stringify(cleanedEntries));
+      triggerAutoSave({ units: updated, timetableEntries: cleanedEntries });
       return;
     }
 
-    saveStateToDatabaseImmediately({ units: updated });
+    triggerAutoSave({ units: updated });
   };
 
   const updateCourseGroupsState = (updated: CourseGroup[]) => {
     setCourseGroups(updated);
     stateRef.current.courseGroups = updated;
-    localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ courseGroups: updated });
+    safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(updated));
+    triggerAutoSave({ courseGroups: updated });
   };
 
   const updateTimetableEntriesState = (updated: TimetableEntry[]) => {
     setTimetableEntries(updated);
     stateRef.current.timetableEntries = updated;
-    localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ timetableEntries: updated });
+    safeSetItem(KEYS.TIMETABLE, JSON.stringify(updated));
+    triggerAutoSave({ timetableEntries: updated });
   };
 
   const updateTrainerPreferencesState = (updated: TrainerSlotPreference[]) => {
     setTrainerPreferences(updated);
     stateRef.current.trainerPreferences = updated;
-    localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ trainerPreferences: updated });
+    safeSetItem(KEYS.PREFERENCES, JSON.stringify(updated));
+    triggerAutoSave({ trainerPreferences: updated });
   };
 
   const updateAcademicSettingState = (updated: AcademicSetting) => {
     setAcademicSetting(updated);
     stateRef.current.academicSetting = updated;
-    localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ academicSetting: updated });
+    safeSetItem(KEYS.ACADEMIC, JSON.stringify(updated));
+    triggerAutoSave({ academicSetting: updated });
   };
 
   const updateStudentsState = (updated: Student[]) => {
     setStudents(updated);
     stateRef.current.students = updated;
-    localStorage.setItem(KEYS.STUDENTS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ students: updated });
+    safeSetItem(KEYS.STUDENTS, JSON.stringify(updated));
+    triggerAutoSave({ students: updated });
   };
 
   const updateFeeStructuresState = (updated: FeeStructure[]) => {
     setFeeStructures(updated);
     stateRef.current.feeStructures = updated;
-    localStorage.setItem(KEYS.FEE_STRUCTURES, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ feeStructures: updated });
+    safeSetItem(KEYS.FEE_STRUCTURES, JSON.stringify(updated));
+    triggerAutoSave({ feeStructures: updated });
   };
 
   const updateInvoicesState = (updated: Invoice[]) => {
     setInvoices(updated);
     stateRef.current.invoices = updated;
-    localStorage.setItem(KEYS.INVOICES, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ invoices: updated });
+    safeSetItem(KEYS.INVOICES, JSON.stringify(updated));
+    triggerAutoSave({ invoices: updated });
   };
 
   const updatePaymentsState = (updated: PaymentTransaction[]) => {
     setPayments(updated);
     stateRef.current.payments = updated;
-    localStorage.setItem(KEYS.PAYMENTS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ payments: updated });
+    safeSetItem(KEYS.PAYMENTS, JSON.stringify(updated));
+    triggerAutoSave({ payments: updated });
   };
 
   const updateInstallmentPlansState = (updated: InstallmentPlan[]) => {
     setInstallmentPlans(updated);
     stateRef.current.installmentPlans = updated;
-    localStorage.setItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ installmentPlans: updated });
+    safeSetItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(updated));
+    triggerAutoSave({ installmentPlans: updated });
   };
 
   const updateFeeAuditLogsState = (updated: FeeAuditLog[]) => {
     setFeeAuditLogs(updated);
     stateRef.current.feeAuditLogs = updated;
-    localStorage.setItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ feeAuditLogs: updated });
+    safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(updated));
+    triggerAutoSave({ feeAuditLogs: updated });
   };
 
   const updateAdmissionApplicationsState = (updated: AdmissionApplication[]) => {
     setAdmissionApplications(updated);
     stateRef.current.admissionApplications = updated;
-    localStorage.setItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ admissionApplications: updated });
+    safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(updated));
+    triggerAutoSave({ admissionApplications: updated });
   };
 
   const updateExamMarksState = (updated: ExamMark[]) => {
     setExamMarks(updated);
     stateRef.current.examMarks = updated;
-    localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ examMarks: updated });
+    safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(updated));
+    triggerAutoSave({ examMarks: updated });
   };
 
   const updateWebsiteConfigState = (updated: WebsiteConfig) => {
     setWebsiteConfig(updated);
     stateRef.current.websiteConfig = updated;
-    localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(updated));
-    saveStateToDatabaseImmediately({ websiteConfig: updated });
+    safeSetItem(KEYS.WEBSITE_CONFIG, JSON.stringify(updated));
+    triggerAutoSave({ websiteConfig: updated });
   };
 
 
@@ -1062,7 +1134,7 @@ export default function App() {
               {syncStatus === 'saving' ? (
                 <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10.5px] font-bold">
                   <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
-                  <span>Saving to Database...</span>
+                  <span>Saving updates...</span>
                 </div>
               ) : syncStatus === 'error' ? (
                 <button
@@ -1071,18 +1143,18 @@ export default function App() {
                     saveStateToDatabaseImmediately();
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 hover:text-amber-900 text-[10.5px] font-bold transition-all cursor-pointer shadow-3xs"
-                  title="Offline Mode - Click to retry cloud sync"
+                  title="Offline Mode - Changes are saved locally on this computer. Click to retry cloud sync."
                 >
-                  <CloudOff className="w-3 h-3 text-amber-600 animate-pulse" />
+                  <CloudOff className="w-3 h-3 text-amber-600" />
                   <span>Offline • Saved Locally</span>
                 </button>
               ) : (
                 <div 
                   className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10.5px] font-semibold shadow-3xs"
-                  title={lastSavedTime ? `Database Synced at ${lastSavedTime}` : "Database Connected & Synced"}
+                  title={lastSavedTime ? `Saved automatically at ${lastSavedTime}` : "Database Connected & Synced"}
                 >
                   <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
-                  <span>Database Synced</span>
+                  <span>Saved Automatically</span>
                   {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime})</span>}
                 </div>
               )}
@@ -1152,18 +1224,17 @@ export default function App() {
             {/* Sync status for student */}
             <div className="hidden sm:flex items-center">
               {syncStatus === 'saving' ? (
-                <span className="text-[10px] text-amber-700 font-medium">Saving...</span>
+                <span className="text-[10px] text-amber-700 font-medium flex items-center gap-1">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Saving...
+                </span>
               ) : syncStatus === 'error' ? (
-                <button 
-                  onClick={() => saveStateToDatabaseImmediately()}
-                  className="text-[10px] text-red-600 hover:text-red-800 font-bold underline cursor-pointer"
-                >
-                  Sync Error (Retry)
-                </button>
+                <span className="text-[10.5px] text-amber-700 font-semibold flex items-center gap-1">
+                  <CloudOff className="w-2.5 h-2.5" /> Saved Locally
+                </span>
               ) : (
                 <span className="text-[10.5px] text-emerald-700 font-semibold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-                  Database Synced
+                  Saved Automatically
                 </span>
               )}
             </div>

@@ -106,7 +106,8 @@ async function startServer() {
         }
       }
 
-      res.json({ success: true, state });
+      const updatedAt = state?.updatedAt || (fs.existsSync(stateFilePath) ? fs.statSync(stateFilePath).mtime.toISOString() : null);
+      res.json({ success: true, state, updatedAt });
     } catch (error) {
       console.error("Failed to get state:", error);
       res.status(500).json({ success: false, error: "Failed to get state" });
@@ -120,8 +121,10 @@ async function startServer() {
 
       // 1. Always write to local file as primary durable storage
       let localSaved = false;
+      const nowIso = new Date().toISOString();
+      const enrichedState = { ...state, updatedAt: nowIso };
       try {
-        fs.writeFileSync(stateFilePath, JSON.stringify(state, null, 2), 'utf-8');
+        fs.writeFileSync(stateFilePath, JSON.stringify(enrichedState, null, 2), 'utf-8');
         localSaved = true;
       } catch (localWriteError) {
         console.error("[Local] Failed to write local state file:", localWriteError);
@@ -132,11 +135,11 @@ async function startServer() {
         try {
           const docRef = doc(db, "app_state", "timetable_state");
           await Promise.race([
-            setDoc(docRef, { data: state, updatedAt: new Date().toISOString() }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timed out")), 2000))
+            setDoc(docRef, { data: enrichedState, updatedAt: nowIso }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timed out")), 2500))
           ]);
           console.log("[Firebase] Saved state to Firestore database successfully.");
-          return res.json({ success: true, firestoreSaved: true, localSaved, savedAt: new Date().toISOString() });
+          return res.json({ success: true, firestoreSaved: true, localSaved, updatedAt: nowIso });
         } catch (firestoreWriteError: any) {
           const errMsg = firestoreWriteError?.message || String(firestoreWriteError);
           console.warn("[Firebase] Write to Firestore failed, backing off:", errMsg);
@@ -150,7 +153,8 @@ async function startServer() {
               success: true, 
               firestoreSaved: false, 
               localSaved: true, 
-              warning: "Saved to local server storage (Cloud Firestore daily quota limit reached; local database is fully up-to-date)." 
+              updatedAt: nowIso,
+              warning: "Saved to server database (Cloud Firestore daily quota limit reached; server database is fully up-to-date)." 
             });
           }
         }
@@ -158,7 +162,7 @@ async function startServer() {
 
       // If in backoff or no Firestore, but local save succeeded, return success
       if (localSaved) {
-        return res.json({ success: true, firestoreSaved: false, localSaved: true });
+        return res.json({ success: true, firestoreSaved: false, localSaved: true, updatedAt: nowIso });
       }
 
       res.status(500).json({ success: false, error: "Failed to save state to storage" });

@@ -1,7 +1,8 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/kitchatv/kitcha-app/
-    - /bin/cp -R * $DEPLOYPATH
+    - export DEPLOYPATH=${HOME}/public_html/
+    - /bin/mkdir -p $DEPLOYPATH
+    - if [ -d "dist" ]; then /bin/cp -R dist/* $DEPLOYPATH/; else /bin/cp -R * $DEPLOYPATH/; fi
     - /bin/mkdir -p $DEPLOYPATH/tmp
     - /bin/touch $DEPLOYPATH/tmp/restart.txt

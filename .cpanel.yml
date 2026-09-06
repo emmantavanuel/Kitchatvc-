@@ -2,4 +2,4 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/kitchatv/public_html/
-    - /bin/cp -R * $DEPLOYPATH
+    - /bin/cp -R cpanel_deploy/* $DEPLOYPATH

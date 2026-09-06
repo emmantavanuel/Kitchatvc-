@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import { 
-  User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, CourseGroup 
+  User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, CourseGroup,
+  WebsiteConfig
 } from '../types';
 import { TIME_SLOTS } from '../data/seedData';
+import { DEFAULT_WEBSITE_CONFIG } from '../data/websiteData';
 import { 
   Users, Layers, GraduationCap, School, Calendar, LayoutGrid, BarChart3, Database,
   Plus, Edit2, Trash2, ShieldAlert, Key, ToggleLeft, ToggleRight, Download, Upload, CheckCircle2, XCircle,
-  Printer, FileDown, BookOpen, Briefcase
+  Printer, FileDown, BookOpen, Briefcase, Globe
 } from 'lucide-react';
 import { detectConflicts, buildCombinedCohorts, formatCombinedBadges, getMatchingEntriesForCohortCell } from '../utils/scheduler';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 import UserProfileModal from './UserProfileModal';
 import TrainerWorkloadReport from './TrainerWorkloadReport';
+import WebsiteEditor from './WebsiteEditor';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -35,9 +38,11 @@ interface AdminDashboardProps {
   onImportState: (fullState: any) => void;
   onLogout: () => void;
   fullState: any;
+  websiteConfig?: WebsiteConfig;
+  onUpdateWebsiteConfig?: (config: WebsiteConfig) => void;
 }
 
-type TabType = 'users' | 'departments' | 'courses' | 'classrooms' | 'units' | 'academic' | 'global_timetables' | 'reports' | 'trainer_workload' | 'backup';
+type TabType = 'users' | 'departments' | 'courses' | 'classrooms' | 'units' | 'academic' | 'global_timetables' | 'reports' | 'trainer_workload' | 'backup' | 'website';
 
 const PrintSignatureBlock = () => (
   <div className="print-signature-block mt-4 pt-3 border-t border-slate-200 grid grid-cols-3 gap-4 text-xs font-mono font-semibold text-slate-700 print:text-black print:mt-1 print:pt-1.5 print:border-t-2 print:border-slate-800 print:gap-6 print:text-[9.5pt] break-inside-avoid print:break-inside-avoid shrink-0 print:pb-0">
@@ -129,7 +134,9 @@ export default function AdminDashboard({
   onUpdateUnits,
   onImportState,
   onLogout,
-  fullState
+  fullState,
+  websiteConfig,
+  onUpdateWebsiteConfig
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('users');
   
@@ -1924,6 +1931,15 @@ export default function AdminDashboard({
             Backup & Restore Data
           </button>
 
+          <button 
+            onClick={() => setActiveTab('website')}
+            id="tab-website-cms"
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left cursor-pointer ${activeTab === 'website' ? 'bg-[#C29563]/15 text-[#8F6335] font-bold border border-[#C29563]/30' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
+          >
+            <Globe className="w-4.5 h-4.5 text-[#C29563]" />
+            <span>Website CMS & Adverts</span>
+          </button>
+
           <div className="mt-6 pt-5 border-t border-slate-100 space-y-2">
             <button 
               onClick={() => setPrintMasterPreview(true)}
@@ -3112,6 +3128,17 @@ export default function AdminDashboard({
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* WEBSITE CMS TAB */}
+          {activeTab === 'website' && (
+            <div className="space-y-6">
+              <WebsiteEditor
+                config={websiteConfig || DEFAULT_WEBSITE_CONFIG}
+                onSaveConfig={onUpdateWebsiteConfig || (() => {})}
+                currentUser={currentUser}
+              />
             </div>
           )}
         </main>

@@ -4,7 +4,8 @@ import {
 } from 'lucide-react';
 import { 
   User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, TrainerSlotPreference, CourseGroup,
-  Student, FeeStructure, Invoice, PaymentTransaction, InstallmentPlan, FeeAuditLog, AdmissionApplication, ExamMark
+  Student, FeeStructure, Invoice, PaymentTransaction, InstallmentPlan, FeeAuditLog, AdmissionApplication, ExamMark,
+  WebsiteConfig
 } from './types';
 import { 
   INITIAL_USERS, INITIAL_DEPARTMENTS, INITIAL_COURSES, INITIAL_CLASSROOMS, 
@@ -14,6 +15,7 @@ import {
   INITIAL_STUDENTS, INITIAL_FEE_STRUCTURES, INITIAL_INVOICES, INITIAL_PAYMENTS,
   INITIAL_INSTALLMENT_PLANS, INITIAL_FEE_AUDIT_LOGS, INITIAL_ADMISSION_APPLICATIONS, INITIAL_EXAM_MARKS
 } from './data/feeSeedData';
+import { DEFAULT_WEBSITE_CONFIG } from './data/websiteData';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import HodDashboard from './components/HodDashboard';
@@ -42,7 +44,8 @@ const KEYS = {
   INSTALLMENT_PLANS: `${STORAGE_PREFIX}installment_plans`,
   FEE_AUDIT_LOGS: `${STORAGE_PREFIX}fee_audit_logs`,
   ADMISSION_APPLICATIONS: `${STORAGE_PREFIX}admission_applications`,
-  EXAM_MARKS: `${STORAGE_PREFIX}exam_marks`
+  EXAM_MARKS: `${STORAGE_PREFIX}exam_marks`,
+  WEBSITE_CONFIG: `${STORAGE_PREFIX}website_config`
 };
 
 export default function App() {
@@ -56,6 +59,9 @@ export default function App() {
   const [timetableEntries, setTimetableEntries] = useState<TimetableEntry[]>([]);
   const [trainerPreferences, setTrainerPreferences] = useState<TrainerSlotPreference[]>([]);
   const [academicSetting, setAcademicSetting] = useState<AcademicSetting>(DEFAULT_ACADEMIC_SETTING);
+  
+  // Dynamic Website CMS State
+  const [websiteConfig, setWebsiteConfig] = useState<WebsiteConfig>(DEFAULT_WEBSITE_CONFIG);
   
   // Fee Management database states
   const [students, setStudents] = useState<Student[]>([]);
@@ -95,6 +101,7 @@ export default function App() {
     timetableEntries: [],
     trainerPreferences: [],
     academicSetting: DEFAULT_ACADEMIC_SETTING,
+    websiteConfig: DEFAULT_WEBSITE_CONFIG,
     students: [],
     feeStructures: [],
     invoices: [],
@@ -117,6 +124,7 @@ export default function App() {
       timetableEntries,
       trainerPreferences,
       academicSetting,
+      websiteConfig,
       students,
       feeStructures,
       invoices,
@@ -128,7 +136,7 @@ export default function App() {
     };
   }, [
     users, departments, courses, classrooms, units, courseGroups,
-    timetableEntries, trainerPreferences, academicSetting,
+    timetableEntries, trainerPreferences, academicSetting, websiteConfig,
     students, feeStructures, invoices, payments, installmentPlans, feeAuditLogs,
     admissionApplications, examMarks
   ]);
@@ -249,7 +257,8 @@ export default function App() {
             installmentPlans: sInstallmentPlans,
             feeAuditLogs: sFeeAuditLogs,
             admissionApplications: sAdmissions,
-            examMarks: sExams
+            examMarks: sExams,
+            websiteConfig: sWebsiteConfig
           } = result.state;
           
           if (sUsers) {
@@ -295,6 +304,17 @@ export default function App() {
             localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(sAcademic));
           }
           
+          // Dynamic website CMS config
+          if (sWebsiteConfig) {
+            setWebsiteConfig(sWebsiteConfig);
+            localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(sWebsiteConfig));
+          } else {
+            const cachedWebsite = localStorage.getItem(KEYS.WEBSITE_CONFIG);
+            const loadedWebsite = cachedWebsite ? JSON.parse(cachedWebsite) : DEFAULT_WEBSITE_CONFIG;
+            setWebsiteConfig(loadedWebsite);
+            localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(loadedWebsite));
+          }
+
           // Set fee variables
           const loadedStudents = sStudents || INITIAL_STUDENTS;
           setStudents(loadedStudents);
@@ -340,6 +360,7 @@ export default function App() {
           const storedEntries = localStorage.getItem(KEYS.TIMETABLE);
           const storedPrefs = localStorage.getItem(KEYS.PREFERENCES);
           const storedAcademic = localStorage.getItem(KEYS.ACADEMIC);
+          const storedWebsite = localStorage.getItem(KEYS.WEBSITE_CONFIG);
           const storedStudents = localStorage.getItem(KEYS.STUDENTS);
           const storedFeeStructures = localStorage.getItem(KEYS.FEE_STRUCTURES);
           const storedInvoices = localStorage.getItem(KEYS.INVOICES);
@@ -364,6 +385,7 @@ export default function App() {
           const loadedEntries = storedEntries ? JSON.parse(storedEntries) : INITIAL_TIMETABLE_ENTRIES;
           const loadedPrefs = storedPrefs ? JSON.parse(storedPrefs) : INITIAL_TRAINER_PREFERENCES;
           const loadedAcademic = storedAcademic ? JSON.parse(storedAcademic) : DEFAULT_ACADEMIC_SETTING;
+          const loadedWebsite = storedWebsite ? JSON.parse(storedWebsite) : DEFAULT_WEBSITE_CONFIG;
           const loadedStudents = storedStudents ? JSON.parse(storedStudents) : INITIAL_STUDENTS;
           const loadedFeeStructures = storedFeeStructures ? JSON.parse(storedFeeStructures) : INITIAL_FEE_STRUCTURES;
           const loadedInvoices = storedInvoices ? JSON.parse(storedInvoices) : INITIAL_INVOICES;
@@ -382,6 +404,7 @@ export default function App() {
           setTimetableEntries(loadedEntries);
           setTrainerPreferences(loadedPrefs);
           setAcademicSetting(loadedAcademic);
+          setWebsiteConfig(loadedWebsite);
           setStudents(loadedStudents);
           setFeeStructures(loadedFeeStructures);
           setInvoices(loadedInvoices);
@@ -401,6 +424,7 @@ export default function App() {
           localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(loadedEntries));
           localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(loadedPrefs));
           localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(loadedAcademic));
+          localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(loadedWebsite));
           localStorage.setItem(KEYS.STUDENTS, JSON.stringify(loadedStudents));
           localStorage.setItem(KEYS.FEE_STRUCTURES, JSON.stringify(loadedFeeStructures));
           localStorage.setItem(KEYS.INVOICES, JSON.stringify(loadedInvoices));
@@ -421,6 +445,7 @@ export default function App() {
             timetableEntries: loadedEntries,
             trainerPreferences: loadedPrefs,
             academicSetting: loadedAcademic,
+            websiteConfig: loadedWebsite,
             students: loadedStudents,
             feeStructures: loadedFeeStructures,
             invoices: loadedInvoices,
@@ -667,6 +692,13 @@ export default function App() {
     saveStateToDatabaseImmediately({ examMarks: updated });
   };
 
+  const updateWebsiteConfigState = (updated: WebsiteConfig) => {
+    setWebsiteConfig(updated);
+    stateRef.current.websiteConfig = updated;
+    localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(updated));
+    saveStateToDatabaseImmediately({ websiteConfig: updated });
+  };
+
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -689,6 +721,7 @@ export default function App() {
     const updatedTimetableEntries = fullState.timetableEntries || timetableEntries;
     const updatedTrainerPreferences = fullState.trainerPreferences || trainerPreferences;
     const updatedAcademicSetting = fullState.academicSetting || academicSetting;
+    const updatedWebsiteConfig = fullState.websiteConfig || websiteConfig;
 
     setUsers(updatedUsers);
     setDepartments(updatedDepartments);
@@ -699,6 +732,7 @@ export default function App() {
     setTimetableEntries(updatedTimetableEntries);
     setTrainerPreferences(updatedTrainerPreferences);
     setAcademicSetting(updatedAcademicSetting);
+    setWebsiteConfig(updatedWebsiteConfig);
 
     localStorage.setItem(KEYS.USERS, JSON.stringify(updatedUsers));
     localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(updatedDepartments));
@@ -709,6 +743,7 @@ export default function App() {
     localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(updatedTimetableEntries));
     localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(updatedTrainerPreferences));
     localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(updatedAcademicSetting));
+    localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(updatedWebsiteConfig));
 
     // Also update logged-in user if changed
     if (currentUser) {
@@ -734,6 +769,7 @@ export default function App() {
       timetableEntries: updatedTimetableEntries,
       trainerPreferences: updatedTrainerPreferences,
       academicSetting: updatedAcademicSetting,
+      websiteConfig: updatedWebsiteConfig,
       students,
       feeStructures,
       invoices,
@@ -758,7 +794,8 @@ export default function App() {
       courseGroups,
       timetableEntries,
       trainerPreferences,
-      academicSetting
+      academicSetting,
+      websiteConfig
     };
   };
 
@@ -806,6 +843,9 @@ export default function App() {
           onAddApplication={(newApp) => updateAdmissionApplicationsState([newApp, ...admissionApplications])}
           erpUsers={users}
           erpDepartments={departments}
+          websiteConfig={websiteConfig}
+          onUpdateWebsiteConfig={updateWebsiteConfigState}
+          currentUser={currentUser}
         />
       </div>
     );
@@ -885,6 +925,8 @@ export default function App() {
           onImportState={handleImportState}
           onLogout={handleLogout}
           fullState={getFullSystemStateBundle()}
+          websiteConfig={websiteConfig}
+          onUpdateWebsiteConfig={updateWebsiteConfigState}
         />
       );
     }

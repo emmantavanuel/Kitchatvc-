@@ -1,57 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Phone, Mail, MapPin, ChevronDown, BookOpen, GraduationCap, Download, 
   FileText, Award, CheckCircle, ArrowRight, ExternalLink, Calendar, 
   Search, Shield, Users, Building, Bell, Sparkles, Clock, Compass, Menu, X,
-  Send, MessageSquare, HelpCircle
+  Send, MessageSquare, HelpCircle, Edit2, Plus, Upload, Megaphone, Globe,
+  Image as ImageIcon
 } from 'lucide-react';
 import { 
-  WEBSITE_DEPARTMENTS, COLLEGE_INFO, WebsiteCourse, WebsiteDepartment 
+  WEBSITE_DEPARTMENTS, COLLEGE_INFO, WebsiteCourse, WebsiteDepartment,
+  DEFAULT_WEBSITE_CONFIG 
 } from '../data/websiteData';
-import { AdmissionApplication, User, Department } from '../types';
+import { AdmissionApplication, User, Department, WebsiteConfig, WebsiteManager, WebsiteAdvert } from '../types';
 import TraineeRegistrationModal from './TraineeRegistrationModal';
 import ApplicationStatusModal from './ApplicationStatusModal';
 import AdmissionLetterModal from './AdmissionLetterModal';
+import WebsiteEditor from './WebsiteEditor';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
-import principalImg from '../assets/images/principal_john_mareri.jpg';
-import deputyAdminImg from '../assets/images/deputy_samwel_geke.jpg';
-import deputyAcadImg from '../assets/images/deputy_martin_nyamweya.jpg';
-import registrarImg from '../assets/images/registrar_obare_vincent.jpg';
-import deanImg from '../assets/images/dean_elmelda_moranga.jpg';
-
-interface ManagementMember {
-  name: string;
-  role: string;
-  image: string;
-}
-
-const MANAGEMENT_MEMBERS: ManagementMember[] = [
-  {
-    name: 'Mr. John Mareri Ondieki',
-    role: 'Principal',
-    image: principalImg
-  },
-  {
-    name: 'Mr.Samwel Geke Sagwe',
-    role: 'Deputy Principal Administration',
-    image: deputyAdminImg
-  },
-  {
-    name: 'Mr. Martin Nyamweya Mageto',
-    role: 'Deputy Principal Academics',
-    image: deputyAcadImg
-  },
-  {
-    name: 'Mr.Obare Nyamweya Vincent',
-    role: 'Registrar',
-    image: registrarImg
-  },
-  {
-    name: 'Ms Elmelda Moranga',
-    role: 'Dean of Students',
-    image: deanImg
-  }
-];
 
 interface WebsiteFrontPageProps {
   onNavigateToPortal: () => void;
@@ -59,6 +23,9 @@ interface WebsiteFrontPageProps {
   onAddApplication: (app: AdmissionApplication) => void;
   erpUsers?: User[];
   erpDepartments?: Department[];
+  websiteConfig?: WebsiteConfig;
+  onUpdateWebsiteConfig?: (config: WebsiteConfig) => void;
+  currentUser?: User | null;
 }
 
 export default function WebsiteFrontPage({ 
@@ -66,12 +33,59 @@ export default function WebsiteFrontPage({
   applications, 
   onAddApplication,
   erpUsers = [],
-  erpDepartments = []
+  erpDepartments = [],
+  websiteConfig = DEFAULT_WEBSITE_CONFIG,
+  onUpdateWebsiteConfig = () => {},
+  currentUser
 }: WebsiteFrontPageProps) {
   // Navigation active view / active section (Added 'contact' menu)
   const [activeTab, setActiveTab] = useState<'home' | 'about' | 'bog' | 'management' | 'admissions' | 'departments' | 'downloads' | 'adverts' | 'tenders' | 'courses' | 'contact'>('home');
   const [selectedDeptId, setSelectedDeptId] = useState<string>('ict');
   
+  // Super Admin CMS Modal state
+  const [isCmsModalOpen, setIsCmsModalOpen] = useState(false);
+  const [cmsInitialTab, setCmsInitialTab] = useState<'identity' | 'hero' | 'management' | 'adverts' | 'stats' | 'contacts'>('management');
+
+  // Quick Direct Manager Portrait Upload
+  const quickUploadFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingManagerId, setUploadingManagerId] = useState<string | null>(null);
+
+  const handleDirectManagerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !uploadingManagerId) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      const currentManagers = websiteConfig.managers && websiteConfig.managers.length > 0 
+        ? websiteConfig.managers 
+        : DEFAULT_WEBSITE_CONFIG.managers;
+      const updated = currentManagers.map(m =>
+        m.id === uploadingManagerId ? { ...m, image: base64 } : m
+      );
+      onUpdateWebsiteConfig({
+        ...websiteConfig,
+        managers: updated
+      });
+      setUploadingManagerId(null);
+    };
+    reader.readAsDataURL(file);
+    // Reset file input so selecting same file again fires event
+    if (e.target) e.target.value = '';
+  };
+
+  const handleDirectRemovePhoto = (id: string) => {
+    const currentManagers = websiteConfig.managers && websiteConfig.managers.length > 0 
+      ? websiteConfig.managers 
+      : DEFAULT_WEBSITE_CONFIG.managers;
+    const updated = currentManagers.map(m =>
+      m.id === id ? { ...m, image: '' } : m
+    );
+    onUpdateWebsiteConfig({
+      ...websiteConfig,
+      managers: updated
+    });
+  };
+
   // Modals
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [registerCourseId, setRegisterCourseId] = useState<string | undefined>(undefined);
@@ -122,6 +136,66 @@ export default function WebsiteFrontPage({
 
   return (
     <div className="min-h-screen bg-[#FCFBF9] text-[#2C1F15] font-sans flex flex-col">
+      {/* Hidden file input for quick direct portrait uploads */}
+      <input 
+        ref={quickUploadFileInputRef} 
+        type="file" 
+        accept="image/*" 
+        onChange={handleDirectManagerUpload} 
+        className="hidden" 
+      />
+
+      {/* Super Admin Quick CMS Action Bar */}
+      {currentUser?.role === 'admin' && (
+        <div className="bg-gradient-to-r from-[#281A10] via-[#3D2817] to-[#281A10] text-white px-4 py-2.5 text-xs border-b border-[#C29563]/40 shadow-sm sticky top-0 z-40">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+              <div className="flex items-center gap-1.5 font-bold">
+                <Globe className="w-4 h-4 text-[#C29563]" />
+                <span className="text-white">Super Admin Website CMS:</span>
+              </div>
+              <span className="text-amber-200 text-[11px] hidden sm:inline">Front page is live & editable</span>
+            </div>
+            
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  setCmsInitialTab('management');
+                  setIsCmsModalOpen(true);
+                }}
+                className="px-2.5 py-1 bg-[#C29563]/25 hover:bg-[#C29563]/40 text-[#F5E6D5] hover:text-white rounded-md border border-[#C29563]/40 font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-[#C29563]" />
+                <span>+ Add / Manage Leadership</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setCmsInitialTab('adverts');
+                  setIsCmsModalOpen(true);
+                }}
+                className="px-2.5 py-1 bg-[#C29563]/25 hover:bg-[#C29563]/40 text-[#F5E6D5] hover:text-white rounded-md border border-[#C29563]/40 font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Megaphone className="w-3.5 h-3.5 text-[#C29563]" />
+                <span>+ Post Advert</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setCmsInitialTab('identity');
+                  setIsCmsModalOpen(true);
+                }}
+                className="px-3 py-1 bg-[#C29563] hover:bg-[#B28452] text-white font-bold rounded-md text-[11px] flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>Open Website CMS Editor</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. TOP BAR / HEADER (Clean White & Soft Light Brown, Contacts Box Removed from Right Corner) */}
       <header className="bg-white border-b border-[#EDE2D5]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -980,38 +1054,159 @@ export default function WebsiteFrontPage({
         ========================================================================= */}
         {activeTab === 'management' && (
           <section className="space-y-8 bg-white rounded-2xl p-6 sm:p-10 border border-[#EADBCA] shadow-2xs">
-            <div className="max-w-3xl">
-              <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Administration</span>
-              <h2 className="text-3xl font-black text-[#281A10] mt-1">College Management</h2>
-              <p className="text-[#453629] mt-3 leading-relaxed text-sm font-medium">
-                Executive leadership team guiding academic governance, administration, and trainee empowerment at Kitutu Chache Technical and Vocational College.
-              </p>
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#EADBCA] pb-6">
+              <div className="max-w-3xl">
+                <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Administration</span>
+                <h2 className="text-3xl font-black text-[#281A10] mt-1">College Management</h2>
+                <p className="text-[#453629] mt-3 leading-relaxed text-sm font-medium">
+                  Executive leadership team guiding academic governance, administration, and trainee empowerment at Kitutu Chache Technical and Vocational College.
+                </p>
+              </div>
+
+              {currentUser?.role === 'admin' && (
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    onClick={() => {
+                      setCmsInitialTab('management');
+                      setIsCmsModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 bg-[#C29563] hover:bg-[#B28452] text-white font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-2 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Manager / Position</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-7">
-              {MANAGEMENT_MEMBERS.map((member, idx) => (
+              {(websiteConfig.managers && websiteConfig.managers.length > 0 ? websiteConfig.managers : DEFAULT_WEBSITE_CONFIG.managers).map((member) => (
                 <div 
-                  key={idx} 
-                  className="bg-[#FAF8F5] border border-[#EADBCA] rounded-2xl overflow-hidden shadow-2xs hover:border-[#C29563] transition-all hover:shadow-md flex flex-col group"
+                  key={member.id} 
+                  className="bg-[#FAF8F5] border border-[#EADBCA] rounded-2xl overflow-hidden shadow-2xs hover:border-[#C29563] transition-all hover:shadow-md flex flex-col group relative"
                 >
-                  <div className="aspect-[4/3] w-full overflow-hidden bg-[#EADBCA]/30">
-                    <img 
-                      src={member.image} 
-                      alt={member.name} 
-                      className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                  <div className="p-4 text-center flex-1 flex flex-col justify-center bg-white/70">
-                    <h4 className="font-bold text-sm sm:text-base text-[#281A10] leading-snug">
-                      {member.name}
-                    </h4>
-                    <p className="text-xs font-semibold text-[#8F6335] mt-1">
-                      {member.role}
-                    </p>
+                  {/* Portrait Area */}
+                  {member.image ? (
+                    <div className="aspect-[4/3] w-full overflow-hidden bg-[#EADBCA]/30 relative">
+                      <img 
+                        src={member.image} 
+                        alt={member.name} 
+                        className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-300"
+                        referrerPolicy="no-referrer"
+                      />
+                      {currentUser?.role === 'admin' && (
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-2">
+                          <button
+                            onClick={() => {
+                              setUploadingManagerId(member.id);
+                              quickUploadFileInputRef.current?.click();
+                            }}
+                            className="px-2.5 py-1.5 bg-white text-slate-800 text-[11px] font-bold rounded-lg shadow-sm hover:bg-slate-100 flex items-center gap-1 cursor-pointer"
+                            title="Change this portrait"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-[#C29563]" />
+                            <span>Change</span>
+                          </button>
+                          <button
+                            onClick={() => handleDirectRemovePhoto(member.id)}
+                            className="px-2.5 py-1.5 bg-rose-600 text-white text-[11px] font-bold rounded-lg shadow-sm hover:bg-rose-700 flex items-center gap-1 cursor-pointer"
+                            title="Remove this portrait"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Leave a space where admin will upload as explicitly requested */
+                    <div className="aspect-[4/3] w-full bg-[#FAF4EC] border-b border-dashed border-[#DFCBB5] flex flex-col items-center justify-center p-4 text-center relative overflow-hidden group/space">
+                      <div className="w-14 h-14 rounded-full bg-[#EADBCA]/60 flex items-center justify-center mb-2 text-[#8F6335]">
+                        <Users className="w-7 h-7" />
+                      </div>
+                      <span className="text-[11px] font-bold text-[#8F6335] uppercase tracking-wider">
+                        Portrait Space
+                      </span>
+                      <span className="text-[10px] text-[#7A634E] mt-0.5 font-medium">
+                        {currentUser?.role === 'admin' ? 'Click below to upload photo' : 'Pending official portrait upload'}
+                      </span>
+
+                      {currentUser?.role === 'admin' ? (
+                        <button
+                          onClick={() => {
+                            setUploadingManagerId(member.id);
+                            quickUploadFileInputRef.current?.click();
+                          }}
+                          className="mt-3 px-3 py-1.5 bg-[#C29563] hover:bg-[#B28452] text-white font-bold text-xs rounded-lg shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload Photo</span>
+                        </button>
+                      ) : (
+                        <div className="mt-2 text-[9px] text-[#A68058] italic">
+                          To be updated by Admin
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Manager Details */}
+                  <div className="p-4 text-center flex-1 flex flex-col justify-between bg-white/80">
+                    <div>
+                      <h4 className="font-bold text-sm sm:text-base text-[#281A10] leading-snug">
+                        {member.name}
+                      </h4>
+                      <p className="text-xs font-semibold text-[#8F6335] mt-1">
+                        {member.role}
+                      </p>
+                      {member.department && (
+                        <span className="inline-block text-[10px] text-[#7D5325] bg-[#FAF3EA] px-2 py-0.5 rounded-full mt-1.5 font-medium">
+                          {member.department}
+                        </span>
+                      )}
+                    </div>
+
+                    {currentUser?.role === 'admin' && (
+                      <div className="mt-3 pt-2.5 border-t border-[#EADBCA]/60 flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setCmsInitialTab('management');
+                            setIsCmsModalOpen(true);
+                          }}
+                          className="text-[11px] font-bold text-[#8F6335] hover:text-[#5C3D20] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit Position / Details</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
+
+              {/* Add Manager Card for Super Admin */}
+              {currentUser?.role === 'admin' && (
+                <div 
+                  onClick={() => {
+                    setCmsInitialTab('management');
+                    setIsCmsModalOpen(true);
+                  }}
+                  className="bg-[#FAF5EE]/60 border-2 border-dashed border-[#C29563]/50 hover:border-[#C29563] rounded-2xl p-6 flex flex-col items-center justify-center text-center group cursor-pointer transition-all hover:bg-[#FAF3EA] hover:shadow-md min-h-[260px]"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-[#C29563]/15 group-hover:bg-[#C29563] text-[#C29563] group-hover:text-white flex items-center justify-center transition-colors mb-3">
+                    <Plus className="w-6 h-6" />
+                  </div>
+                  <h4 className="font-bold text-sm text-[#281A10] group-hover:text-[#8F6335]">
+                    Add Another Manager
+                  </h4>
+                  <p className="text-xs text-[#544030] mt-1 max-w-[200px]">
+                    Create a new executive role, position, or leadership officer.
+                  </p>
+                  <span className="mt-3 text-[11px] font-bold text-[#8F6335] group-hover:underline">
+                    + Add Position &rarr;
+                  </span>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -1165,32 +1360,114 @@ export default function WebsiteFrontPage({
         ========================================================================= */}
         {activeTab === 'adverts' && (
           <section className="space-y-6 bg-white rounded-2xl p-6 sm:p-10 border border-[#EADBCA] shadow-2xs">
-            <div>
-              <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Notices & Vacancies</span>
-              <h2 className="text-3xl font-black text-[#281A10] mt-1">College Adverts & Opportunities</h2>
-              <p className="text-[#453629] mt-2 text-sm font-medium">
-                Latest announcements regarding trainer recruitment, intake deadlines, and student opportunities.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#EADBCA] pb-5">
+              <div>
+                <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Notices & Vacancies</span>
+                <h2 className="text-3xl font-black text-[#281A10] mt-1">College Adverts & Opportunities</h2>
+                <p className="text-[#453629] mt-2 text-sm font-medium">
+                  Latest announcements regarding trainer recruitment, intake deadlines, and student opportunities.
+                </p>
+              </div>
+
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    setCmsInitialTab('adverts');
+                    setIsCmsModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Post New Advert</span>
+                </button>
+              )}
             </div>
 
             <div className="space-y-4">
-              {COLLEGE_INFO.adverts.map((adv, idx) => (
-                <div key={idx} className="p-5 bg-[#FAF8F5] border border-[#EADBCA] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
-                  <div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-[#EBD4BE] text-[#523414] rounded uppercase">
-                      {adv.category}
-                    </span>
-                    <h4 className="font-bold text-base text-[#281A10] mt-1">{adv.title}</h4>
-                    <p className="text-xs text-[#544030] mt-0.5 font-medium">
-                      Posted: {adv.date} • Deadline: <strong className="text-[#872626]">{adv.deadline}</strong> • Ref: {adv.ref}
-                    </p>
+              {(websiteConfig.adverts && websiteConfig.adverts.length > 0 ? websiteConfig.adverts : DEFAULT_WEBSITE_CONFIG.adverts).map((adv) => (
+                <div 
+                  key={adv.id} 
+                  className="p-5 sm:p-6 bg-[#FAF8F5] border border-[#EADBCA] rounded-2xl flex flex-col md:flex-row gap-5 shadow-2xs hover:border-[#C29563] transition-all"
+                >
+                  {/* Advert Banner / Image if uploaded */}
+                  {adv.image && (
+                    <div className="w-full md:w-56 h-36 rounded-xl overflow-hidden bg-[#EADBCA]/40 shrink-0 border border-[#EADBCA]">
+                      <img 
+                        src={adv.image} 
+                        alt={adv.title} 
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex-1 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 bg-[#EBD4BE] text-[#523414] rounded-full uppercase tracking-wider">
+                          {adv.category}
+                        </span>
+                        {adv.ref && (
+                          <span className="text-[10px] font-mono text-[#8F6335]">
+                            Ref: {adv.ref}
+                          </span>
+                        )}
+                        {adv.active === false && (
+                          <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
+                            Archived / Closed
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="font-bold text-base sm:text-lg text-[#281A10]">
+                        {adv.title}
+                      </h4>
+
+                      {adv.description && (
+                        <p className="text-xs sm:text-sm text-[#453629] mt-2 leading-relaxed">
+                          {adv.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-[#EADBCA]/60 flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div className="text-[#695442] font-medium">
+                        Posted: <strong className="text-[#382618]">{adv.date || 'Recent'}</strong> 
+                        {adv.deadline && (
+                          <> • Deadline: <strong className="text-[#962B2B]">{adv.deadline}</strong></>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {currentUser?.role === 'admin' && (
+                          <button
+                            onClick={() => {
+                              setCmsInitialTab('adverts');
+                              setIsCmsModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-[#FAF3EA] hover:bg-[#F0E4D5] text-[#8F6335] text-xs font-bold rounded-lg border border-[#E0CCB8] transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            <span>Edit Advert</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            if (adv.category?.toLowerCase() === 'admissions') {
+                              setIsRegisterOpen(true);
+                            } else {
+                              alert(`Application Details for: "${adv.title}"\nRef: ${adv.ref}\nDeadline: ${adv.deadline}\n\nPlease submit your credentials to: principal@kitutuchachetvc.ac.ke or visit the Administration office.`);
+                            }
+                          }}
+                          className="px-4 py-1.5 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>{adv.actionText || 'Apply / Inquire'}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => alert(`Viewing details for notice: ${adv.title}`)}
-                    className="px-4 py-2 bg-[#A87B4C] hover:bg-[#966A3D] text-white text-xs font-bold rounded-lg transition-colors shrink-0"
-                  >
-                    View Details
-                  </button>
                 </div>
               ))}
             </div>
@@ -1419,6 +1696,40 @@ export default function WebsiteFrontPage({
           application={selectedLetterApp}
           onClose={() => setSelectedLetterApp(null)}
         />
+      )}
+
+      {/* Super Admin Full Website CMS Modal */}
+      {isCmsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-6xl max-h-[92vh] flex flex-col bg-white rounded-3xl shadow-2xl overflow-hidden border border-[#EADBCA]">
+            <div className="bg-[#281A10] text-white px-6 py-3.5 flex items-center justify-between border-b border-[#C29563]/30 shrink-0">
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-[#C29563]" />
+                <h3 className="font-bold text-sm sm:text-base text-white">
+                  Super Admin • Complete Website Content Management (CMS)
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsCmsModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title="Close Editor"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4 sm:p-6 bg-[#FCFBF9]">
+              <WebsiteEditor
+                config={websiteConfig}
+                onSaveConfig={(updated) => {
+                  onUpdateWebsiteConfig(updated);
+                }}
+                onClose={() => setIsCmsModalOpen(false)}
+                currentUser={currentUser || undefined}
+                initialTab={cmsInitialTab}
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

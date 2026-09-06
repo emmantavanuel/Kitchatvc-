@@ -258,4 +258,84 @@ export interface ExamMark {
   remarks?: string;
 }
 
+// --- Dynamic Website CMS & Content Management Types ---
+export interface WebsiteManager {
+  id: string;
+  name: string;
+  role: string;
+  department?: string;
+  image?: string; // base64 Data URL or image path; empty string when pending upload
+  bio?: string;
+  email?: string;
+  phone?: string;
+  order: number;
+}
+
+export interface WebsiteAdvert {
+  id: string;
+  title: string;
+  category: string; // 'Careers' | 'Admissions' | 'Tenders' | 'Events' | 'Announcements' | string
+  description: string;
+  image?: string; // uploaded banner image data URL or image path
+  date: string;
+  deadline?: string;
+  ref?: string;
+  actionText?: string;
+  actionLink?: string;
+  active: boolean;
+}
+
+export interface WebsiteCoreValueItem {
+  title: string;
+  desc: string;
+}
+
+export interface WebsiteStatItem {
+  id: string;
+  label: string;
+  value: string;
+  helper?: string;
+}
+
+export interface WebsiteConfig {
+  collegeName: string;
+  shortName: string;
+  motto: string;
+  tagline: string;
+  mobile: string;
+  email: string;
+  postalAddress: string;
+  physicalAddress: string;
+  workingHours: string;
+  intakeAnnouncement: string;
+  
+  // Hero & Overview
+  heroHeadline: string;
+  heroSubheadline: string;
+  heroBadge: string;
+  
+  // Strategic statements
+  vision: string;
+  mission: string;
+  coreValues: WebsiteCoreValueItem[];
+  
+  // Leadership & Team (Dynamic managers)
+  managers: WebsiteManager[];
+  
+  // Adverts & Notices
+  adverts: WebsiteAdvert[];
+  
+  // Public Quick Stats
+  stats: WebsiteStatItem[];
+  
+  // Principal's Welcome Message
+  principalName: string;
+  principalTitle: string;
+  principalWelcomeMessage: string;
+  
+  // Meta
+  lastUpdated?: string;
+  updatedBy?: string;
+}
+
 

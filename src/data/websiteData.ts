@@ -604,3 +604,139 @@ export const COLLEGE_INFO = {
     { title: 'Supply & Delivery of Trainee Library Books & Technical Manuals', date: 'September 02, 2026', deadline: 'October 05, 2026', ref: 'KTVC/TND/LIB/04/2026-2027', status: 'Open' }
   ]
 };
+
+import { WebsiteConfig } from '../types';
+
+export const DEFAULT_WEBSITE_CONFIG: WebsiteConfig = {
+  collegeName: 'KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE',
+  shortName: 'KITCHA TVC',
+  motto: 'Skills for Empowerment and Industrial Transformation',
+  tagline: 'Centre of Technical Excellence, Innovation & Industrial Competency',
+  mobile: '+254774703453',
+  email: 'kitutuchachetvc@gmail.com',
+  postalAddress: 'P.O Box 376 - 40200 Kisii, Kenya',
+  physicalAddress: 'Off Kisii Town - Nyamataro Road, Kisii County',
+  workingHours: 'Monday - Friday: 8:00 AM - 5:00 PM',
+  intakeAnnouncement: 'September 2026 Intake Ongoing. Secure your opportunity in Engineering, ICT, Agriculture & Business!',
+  
+  heroHeadline: 'Empowering Hands, Transforming Minds, Building Futures',
+  heroSubheadline: 'Government-supported TVET institution offering modern competency-based modular training (CBET), industry apprenticeships, and direct pathways to self-reliance.',
+  heroBadge: 'Ministry of Education • TVETA Registered • CDACC & KNEC Accredited',
+
+  vision: 'A Centre of Excellence in research and skills training that commensurate with industry and community demands.',
+  mission: 'To provide quality, market driven technical and vocational education through effective training, innovation and partnerships for sustainable development.',
+  coreValues: [
+    { title: 'Integrity', desc: 'Upholding honesty, transparency, ethical principles, and accountability in all academic and administrative conduct.' },
+    { title: 'Quality', desc: 'Delivering exceptional, market-driven technical competencies that meet modern industry standards.' },
+    { title: 'Creativity', desc: 'Fostering innovative technical solutions, research ingenuity, and enterprise problem-solving.' },
+    { title: 'Professionalism', desc: 'Demonstrating competence, ethical discipline, continuous improvement, and mutual respect.' },
+    { title: 'Equity', desc: 'Ensuring fair, inclusive, and accessible opportunities in technical education for all trainees.' }
+  ],
+
+  // Initial management members with EMPTY images as requested (clean placeholder spaces reserved for admin uploads)
+  managers: [
+    {
+      id: 'mgr_principal',
+      name: 'Mr. John Mareri Ondieki',
+      role: 'Principal',
+      department: 'Executive Management',
+      image: '', // Image removed, ready for admin upload
+      bio: 'Providing strategic leadership and visionary academic governance at Kitutu Chache TVC.',
+      email: 'principal@kitutuchachetvc.ac.ke',
+      phone: '+254774703453',
+      order: 1
+    },
+    {
+      id: 'mgr_deputy_admin',
+      name: 'Mr. Samwel Geke Sagwe',
+      role: 'Deputy Principal Administration',
+      department: 'Administration',
+      image: '', // Image removed, ready for admin upload
+      bio: 'Overseeing institutional operations, human resources, facilities, and campus infrastructure.',
+      email: 'admin@kitutuchachetvc.ac.ke',
+      order: 2
+    },
+    {
+      id: 'mgr_deputy_acad',
+      name: 'Mr. Martin Nyamweya Mageto',
+      role: 'Deputy Principal Academics',
+      department: 'Academics',
+      image: '', // Image removed, ready for admin upload
+      bio: 'Leading curriculum development, CBET implementation, faculty mentorship, and academic excellence.',
+      email: 'academics@kitutuchachetvc.ac.ke',
+      order: 3
+    },
+    {
+      id: 'mgr_registrar',
+      name: 'Mr. Obare Nyamweya Vincent',
+      role: 'Academic Registrar',
+      department: 'Registry & Admissions',
+      image: '', // Image removed, ready for admin upload
+      bio: 'Directing trainee admissions, student records, KUCCPS placements, and certification.',
+      email: 'registrar@kitutuchachetvc.ac.ke',
+      order: 4
+    },
+    {
+      id: 'mgr_dean',
+      name: 'Ms Elmelda Moranga',
+      role: 'Dean of Students',
+      department: 'Student Affairs & Welfare',
+      image: '', // Image removed, ready for admin upload
+      bio: 'Championing student wellness, leadership development, clubs, sports, and trainee mentorship.',
+      email: 'dean@kitutuchachetvc.ac.ke',
+      order: 5
+    }
+  ],
+
+  // Initial dynamic adverts
+  adverts: [
+    {
+      id: 'adv_part_time_trainers',
+      title: 'Part-Time Trainer Vacancies (Electrical, Building & ICT)',
+      category: 'Careers',
+      description: 'Kitutu Chache TVC invites applications from qualified, passionate TVET trainers with Degree or Higher Diploma in Electrical Power, Building Technology, Mechanical Engineering, and Computer Science.',
+      image: '',
+      date: 'August 28, 2026',
+      deadline: 'September 25, 2026',
+      ref: 'KTVC/ADV/TR/2026/03',
+      actionText: 'Apply for Position',
+      active: true
+    },
+    {
+      id: 'adv_sep_intake',
+      title: 'Call for September 2026 Direct & KUCCPS Trainee Intake',
+      category: 'Admissions',
+      description: 'Applications are open for September 2026 intakes across all Diploma (Level 6), Certificate (Level 5), and Artisan (Level 4) courses. Government capitation and HELB/HEF loans available for eligible trainees.',
+      image: '',
+      date: 'August 15, 2026',
+      deadline: 'September 30, 2026',
+      ref: 'KTVC/ADV/INTAKE/SEP26',
+      actionText: 'Apply Online',
+      active: true
+    },
+    {
+      id: 'adv_attachment',
+      title: 'Industrial Attachment Placement Opportunities for Diploma Students',
+      category: 'Opportunities',
+      description: 'Liaison office announces open industrial attachment and apprenticeship placement slots with our corporate engineering, construction, and agribusiness partner firms.',
+      image: '',
+      date: 'September 01, 2026',
+      deadline: 'October 15, 2026',
+      ref: 'KTVC/ADV/ATT/2026',
+      actionText: 'View Requirements',
+      active: true
+    }
+  ],
+
+  stats: [
+    { id: 'stat_1', label: 'Trainees Enrolled', value: '1,200+', helper: 'Across 6 departments' },
+    { id: 'stat_2', label: 'Certified Trainers', value: '45+', helper: 'TVET-CDACC accredited' },
+    { id: 'stat_3', label: 'Technical Courses', value: '25+', helper: 'Level 4, 5, 6 & modular' },
+    { id: 'stat_4', label: 'Graduate Employability', value: '94%', helper: 'Industry & self-employment' }
+  ],
+
+  principalName: 'Mr. John Mareri Ondieki',
+  principalTitle: 'Principal, Kitutu Chache TVC',
+  principalWelcomeMessage: 'Welcome to Kitutu Chache Technical and Vocational College (KITCHA TVC). We are dedicated to providing world-class technical skills, entrepreneurial mindsets, and practical expertise that directly power Kenya\'s industrial growth. Our state-of-the-art engineering workshops, computing labs, and industry-experienced trainers guarantee that every trainee graduates with hands-on competence and immediate workplace value. We welcome all ambitious Kenyans to join us and forge a resilient, prosperous future.'
+};
+

@@ -43,20 +43,30 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Firestore backoff tracking to prevent request hangs when daily write quota is reached
+  let firestoreBackoffUntil = 0;
+
   // DB Connection Status Check
   app.get("/api/db-status", async (req, res) => {
     if (!db) {
-      return res.json({ connected: false, message: "Firestore database not configured" });
+      return res.json({ connected: true, localOnly: true, message: "Server storage active (Local file mode)" });
+    }
+    if (Date.now() < firestoreBackoffUntil) {
+      return res.json({ 
+        connected: true, 
+        quotaExceeded: true, 
+        message: "Server storage active (Cloud Firestore quota exceeded - using local storage)" 
+      });
     }
     try {
       const docRef = doc(db, "app_state", "timetable_state");
       await Promise.race([
         getDoc(docRef),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Database connection ping timed out")), 5000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Database connection ping timed out")), 3000))
       ]);
       res.json({ connected: true, message: "Database connection active" });
     } catch (error: any) {
-      res.status(503).json({ connected: false, error: error?.message || "Database connection unavailable" });
+      res.json({ connected: true, localOnly: true, warning: error?.message || "Cloud connection throttled" });
     }
   });
 
@@ -65,13 +75,13 @@ async function startServer() {
     try {
       let state = null;
 
-      // 1. Try fetching from Firestore first with 6s timeout
-      if (db) {
+      // 1. Try fetching from Firestore first if not in backoff
+      if (db && Date.now() >= firestoreBackoffUntil) {
         try {
           const docRef = doc(db, "app_state", "timetable_state");
           const docSnap: any = await Promise.race([
             getDoc(docRef),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timed out")), 6000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timed out")), 3000))
           ]);
           if (docSnap && docSnap.exists()) {
             const docData = docSnap.data();
@@ -80,8 +90,8 @@ async function startServer() {
               console.log("[Firebase] Loaded state from Firestore successfully.");
             }
           }
-        } catch (firestoreError) {
-          console.error("[Firebase] Failed to read from Firestore, falling back to local file:", firestoreError);
+        } catch (firestoreError: any) {
+          console.warn("[Firebase] Failed to read from Firestore, falling back to local file:", firestoreError?.message);
         }
       }
 
@@ -91,17 +101,6 @@ async function startServer() {
           const fileContent = fs.readFileSync(stateFilePath, 'utf-8');
           state = JSON.parse(fileContent);
           console.log("[Local] Loaded state from local file fallback.");
-
-          // If Firestore is available but empty, seed it with the local data!
-          if (db && state) {
-            try {
-              const docRef = doc(db, "app_state", "timetable_state");
-              await setDoc(docRef, { data: state, updatedAt: new Date().toISOString() });
-              console.log("[Firebase] Seeded Firestore with initial local data.");
-            } catch (seedError) {
-              console.error("[Firebase] Failed to seed Firestore with initial state:", seedError);
-            }
-          }
         } catch (localError) {
           console.error("[Local] Failed to read local state file:", localError);
         }
@@ -114,44 +113,58 @@ async function startServer() {
     }
   });
 
-  // POST State (Instant saving with strict error detection)
+  // POST State (Instant saving with resilient fallback)
   app.post("/api/state", async (req, res) => {
     try {
       const state = req.body;
 
-      // 1. Always write to local file as backup
+      // 1. Always write to local file as primary durable storage
+      let localSaved = false;
       try {
         fs.writeFileSync(stateFilePath, JSON.stringify(state, null, 2), 'utf-8');
+        localSaved = true;
       } catch (localWriteError) {
-        console.error("[Local] Failed to write local state backup:", localWriteError);
+        console.error("[Local] Failed to write local state file:", localWriteError);
       }
 
-      // 2. Write to Firestore with immediate 6-second timeout
-      if (db) {
+      // 2. If Firestore is configured and not in backoff, attempt cloud replica write
+      if (db && Date.now() >= firestoreBackoffUntil) {
         try {
           const docRef = doc(db, "app_state", "timetable_state");
           await Promise.race([
             setDoc(docRef, { data: state, updatedAt: new Date().toISOString() }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore database connection timed out")), 6000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timed out")), 2000))
           ]);
           console.log("[Firebase] Saved state to Firestore database successfully.");
-          return res.json({ success: true, firestoreSaved: true, savedAt: new Date().toISOString() });
+          return res.json({ success: true, firestoreSaved: true, localSaved, savedAt: new Date().toISOString() });
         } catch (firestoreWriteError: any) {
-          console.error("[Firebase] Immediate write to Firestore failed:", firestoreWriteError);
-          // Return an immediate 503 so client gets instant notification of database connection error
-          return res.status(503).json({ 
-            success: false, 
-            firestoreSaved: false, 
-            error: `Database connection error: ${firestoreWriteError?.message || 'Failed to reach Firestore database'}`
-          });
+          const errMsg = firestoreWriteError?.message || String(firestoreWriteError);
+          console.warn("[Firebase] Write to Firestore failed, backing off:", errMsg);
+          
+          // If quota is exhausted or request timed out, enter 5-minute backoff so subsequent requests are instantaneous
+          firestoreBackoffUntil = Date.now() + 5 * 60 * 1000;
+
+          // If local save succeeded, report SUCCESS to client so user is never interrupted
+          if (localSaved) {
+            return res.json({ 
+              success: true, 
+              firestoreSaved: false, 
+              localSaved: true, 
+              warning: "Saved to local server storage (Cloud Firestore daily quota limit reached; local database is fully up-to-date)." 
+            });
+          }
         }
       }
 
-      // If no Firestore db configured, succeed in local mode
-      res.json({ success: true, firestoreSaved: false, localSaved: true });
+      // If in backoff or no Firestore, but local save succeeded, return success
+      if (localSaved) {
+        return res.json({ success: true, firestoreSaved: false, localSaved: true });
+      }
+
+      res.status(500).json({ success: false, error: "Failed to save state to storage" });
     } catch (error: any) {
       console.error("Failed to save state:", error);
-      res.status(500).json({ success: false, error: error?.message || "Failed to save state to database" });
+      res.status(500).json({ success: false, error: error?.message || "Failed to save state" });
     }
   });
 

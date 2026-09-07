@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { 
   WebsiteConfig, WebsiteManager, WebsiteAdvert, WebsiteCoreValueItem, WebsiteStatItem, User 
 } from '../types';
+import { compressImageFile } from '../lib/imageUtils';
 import { 
   Globe, Users, Megaphone, Building2, Sparkles, Plus, Trash2, Edit2, 
   Upload, Image as ImageIcon, Check, X, Eye, AlertCircle, Save, 
@@ -57,8 +58,8 @@ export default function WebsiteEditor({
     setTimeout(() => setSaveSuccessMessage(null), 4000);
   };
 
-  // Convert uploaded image to Data URL
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>, callback: (dataUrl: string) => void) => {
+  // Convert uploaded image to Data URL with automatic compression to keep payloads lightweight
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>, callback: (dataUrl: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -67,19 +68,19 @@ export default function WebsiteEditor({
       return;
     }
 
-    // Limit size to ~4MB to ensure fast state syncing
-    if (file.size > 4 * 1024 * 1024) {
-      alert('Image size exceeds 4MB. Please upload a smaller image.');
-      return;
+    try {
+      const compressedDataUrl = await compressImageFile(file, 800, 800, 0.82);
+      callback(compressedDataUrl);
+    } catch (err) {
+      console.warn('Image compression fallback to reader:', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (typeof event.target?.result === 'string') {
+          callback(event.target.result);
+        }
+      };
+      reader.readAsDataURL(file);
     }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (typeof event.target?.result === 'string') {
-        callback(event.target.result);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   // ==========================================

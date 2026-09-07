@@ -21,6 +21,14 @@
     "/app_state/timetable_state": {
       "schema": "AppState",
       "description": "Master document storing application timetable and ERP state"
+    },
+    "/app_state/timetable": {
+      "schema": "AppState",
+      "description": "Modular document storing active timetable entries, units, and course groups"
+    },
+    "/app_state/website": {
+      "schema": "AppState",
+      "description": "Modular document storing dynamic website CMS configuration"
     }
   }
 }

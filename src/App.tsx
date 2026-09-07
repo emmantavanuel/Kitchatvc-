@@ -23,7 +23,15 @@ import TrainerDashboard from './components/TrainerDashboard';
 import ReviewerDashboard from './components/ReviewerDashboard';
 import FeeDashboard from './components/FeeDashboard';
 import WebsiteFrontPage from './components/WebsiteFrontPage';
-import { loadApplicationState, saveApplicationState, testConnection } from './lib/firebase';
+import { 
+  loadApplicationState, 
+  saveApplicationState, 
+  saveTimetableDirectly, 
+  saveWebsiteConfigDirectly, 
+  testConnection, 
+  subscribeToRealtimeUpdates, 
+  broadcastLocalUpdate 
+} from './lib/firebase';
 
 // LocalStorage Cache Keys
 const STORAGE_PREFIX = 'kitcha_timetable_';
@@ -220,17 +228,22 @@ export default function App() {
 
     // 3. Save to Firebase Cloud Firestore and local server
     try {
-      await saveApplicationState(fullPayload);
-      setSyncStatus('synced');
-      setSyncErrorMessage(null);
-      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      const result = await saveApplicationState(fullPayload);
+      if (result.firestoreSaved || result.isCloudSynced) {
+        setSyncStatus('synced');
+        setSyncErrorMessage(null);
+        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (Cloud Synced)');
+      } else {
+        setSyncStatus('error');
+        setSyncErrorMessage(result.error || "Could not reach Cloud Firestore. Saved locally on this device.");
+        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (Local Only)');
+      }
       return true;
     } catch (err: any) {
-      console.warn('[Database Sync] Notice:', err);
-      // Local storage already safely holds all updates
-      setSyncStatus('synced');
-      setSyncErrorMessage(null);
-      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Saved Locally)");
+      console.warn('[Database Sync] Cloud write notice:', err);
+      setSyncStatus('error');
+      setSyncErrorMessage("Could not reach Cloud Firestore. Changes are safely saved locally on this computer.");
+      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Local Only)");
       return true;
     }
   }, [
@@ -240,8 +253,8 @@ export default function App() {
     feeAuditLogs, admissionApplications, examMarks
   ]);
 
-  // AUTOMATIC DEBOUNCED SAVER (Batches multiple rapid updates without UI latency)
-  const triggerAutoSave = useCallback((stateOverride?: any) => {
+  // AUTOMATIC REAL-TIME SAVER (Instant when immediate=true, otherwise debounced)
+  const triggerAutoSave = useCallback((stateOverride?: any, immediate: boolean = false) => {
     if (stateOverride) {
       stateRef.current = {
         ...stateRef.current,
@@ -269,12 +282,21 @@ export default function App() {
     }
 
     setSyncStatus('saving');
+    if (immediate) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      saveStateToDatabaseImmediately(stateOverride);
+      return;
+    }
+
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
     }
     autoSaveTimerRef.current = setTimeout(() => {
       saveStateToDatabaseImmediately();
-    }, 350);
+    }, 250);
   }, [saveStateToDatabaseImmediately]);
 
   // Ensure state is flushed on page unload/navigation
@@ -552,7 +574,7 @@ export default function App() {
           localStorage.setItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(loadedAdmissions));
           localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(loadedExams));
 
-          // Sync to server so the server database is initialized immediately.
+          // Initialize local stateRef for immediate availability
           const initialState = {
             users: loadedUsers,
             departments: loadedDepts,
@@ -574,7 +596,8 @@ export default function App() {
             examMarks: loadedExams
           };
           stateRef.current = initialState;
-          saveApplicationState(initialState);
+          // CRITICAL: NEVER push initialState to the database on boot!
+          // This guarantees that initial fallback seeds NEVER overwrite existing cloud timetables when published or opening new tabs.
         }
 
         setSyncStatus('synced');
@@ -657,6 +680,79 @@ export default function App() {
     initializeData();
   }, []);
 
+  // REAL-TIME MULTI-TAB & MULTI-MACHINE SYNCHRONIZATION
+  useEffect(() => {
+    // Listen to real-time events from Cloud Firestore (cross-machine) and BroadcastChannel (cross-tab)
+    const unsubscribe = subscribeToRealtimeUpdates((update) => {
+      if (!update) return;
+
+      // 1. Timetable entries update (instant sync without refresh)
+      if (update.timetableEntries && Array.isArray(update.timetableEntries)) {
+        const incomingJson = JSON.stringify(update.timetableEntries);
+        const currentJson = JSON.stringify(stateRef.current.timetableEntries);
+        if (incomingJson !== currentJson) {
+          console.log(`[Realtime Sync] Timetable updated from ${update.source}: ${update.timetableEntries.length} entries.`);
+          setTimetableEntries(update.timetableEntries);
+          stateRef.current.timetableEntries = update.timetableEntries;
+          safeSetItem(KEYS.TIMETABLE, incomingJson);
+          setLastSavedTime(
+            new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) +
+            (update.source === 'cross_tab_broadcast' ? ' (Tab Live)' : ' (Cloud Live)')
+          );
+          setSyncStatus('synced');
+        }
+      }
+
+      // 2. Units update
+      if (update.units && Array.isArray(update.units)) {
+        const incomingJson = JSON.stringify(update.units);
+        const currentJson = JSON.stringify(stateRef.current.units);
+        if (incomingJson !== currentJson) {
+          setUnits(update.units);
+          stateRef.current.units = update.units;
+          safeSetItem(KEYS.UNITS, incomingJson);
+        }
+      }
+
+      // 3. Course Groups update
+      if (update.courseGroups && Array.isArray(update.courseGroups)) {
+        const incomingJson = JSON.stringify(update.courseGroups);
+        const currentJson = JSON.stringify(stateRef.current.courseGroups);
+        if (incomingJson !== currentJson) {
+          setCourseGroups(update.courseGroups);
+          stateRef.current.courseGroups = update.courseGroups;
+          safeSetItem(KEYS.COURSE_GROUPS, incomingJson);
+        }
+      }
+
+      // 4. Website config update (Front Page CMS)
+      if (update.websiteConfig) {
+        const incomingJson = JSON.stringify(update.websiteConfig);
+        const currentJson = JSON.stringify(stateRef.current.websiteConfig);
+        if (incomingJson !== currentJson) {
+          setWebsiteConfig(update.websiteConfig);
+          stateRef.current.websiteConfig = update.websiteConfig;
+          safeSetItem(KEYS.WEBSITE_CONFIG, incomingJson);
+        }
+      }
+
+      // 5. Academic settings update
+      if (update.academicSetting) {
+        const incomingJson = JSON.stringify(update.academicSetting);
+        const currentJson = JSON.stringify(stateRef.current.academicSetting);
+        if (incomingJson !== currentJson) {
+          setAcademicSetting(update.academicSetting);
+          stateRef.current.academicSetting = update.academicSetting;
+          safeSetItem(KEYS.ACADEMIC, incomingJson);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Auto-route users to correct workspace based on roles
   useEffect(() => {
     if (currentUser) {
@@ -713,6 +809,7 @@ export default function App() {
     setUnits(updated);
     stateRef.current.units = updated;
     safeSetItem(KEYS.UNITS, JSON.stringify(updated));
+    broadcastLocalUpdate('units', { units: updated });
 
     // Cascade delete safety: ensure any scheduled timetable entries for deleted units are purged immediately
     // even if they were already published, keeping identical data all round.
@@ -722,39 +819,50 @@ export default function App() {
       setTimetableEntries(cleanedEntries);
       stateRef.current.timetableEntries = cleanedEntries;
       safeSetItem(KEYS.TIMETABLE, JSON.stringify(cleanedEntries));
-      triggerAutoSave({ units: updated, timetableEntries: cleanedEntries });
+      broadcastLocalUpdate('timetable', { timetableEntries: cleanedEntries, units: updated });
+      triggerAutoSave({ units: updated, timetableEntries: cleanedEntries }, true);
       return;
     }
 
-    triggerAutoSave({ units: updated });
+    triggerAutoSave({ units: updated }, true);
   };
 
   const updateCourseGroupsState = (updated: CourseGroup[]) => {
     setCourseGroups(updated);
     stateRef.current.courseGroups = updated;
     safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(updated));
-    triggerAutoSave({ courseGroups: updated });
+    broadcastLocalUpdate('courseGroups', { courseGroups: updated });
+    triggerAutoSave({ courseGroups: updated }, true);
   };
 
   const updateTimetableEntriesState = (updated: TimetableEntry[]) => {
     setTimetableEntries(updated);
     stateRef.current.timetableEntries = updated;
     safeSetItem(KEYS.TIMETABLE, JSON.stringify(updated));
-    triggerAutoSave({ timetableEntries: updated });
+    // Immediately broadcast to other open tabs on this machine (<1ms)
+    broadcastLocalUpdate('timetable', {
+      timetableEntries: updated,
+      units: stateRef.current.units,
+      courseGroups: stateRef.current.courseGroups
+    });
+    // Dedicated instant save for timetable to ensure zero latency in cloud
+    saveTimetableDirectly(updated, stateRef.current.units, stateRef.current.courseGroups).catch(() => {});
+    // Immediately synchronize full state to Cloud Firestore & server
+    triggerAutoSave({ timetableEntries: updated }, true);
   };
 
   const updateTrainerPreferencesState = (updated: TrainerSlotPreference[]) => {
     setTrainerPreferences(updated);
     stateRef.current.trainerPreferences = updated;
     safeSetItem(KEYS.PREFERENCES, JSON.stringify(updated));
-    triggerAutoSave({ trainerPreferences: updated });
+    triggerAutoSave({ trainerPreferences: updated }, true);
   };
 
   const updateAcademicSettingState = (updated: AcademicSetting) => {
     setAcademicSetting(updated);
     stateRef.current.academicSetting = updated;
     safeSetItem(KEYS.ACADEMIC, JSON.stringify(updated));
-    triggerAutoSave({ academicSetting: updated });
+    triggerAutoSave({ academicSetting: updated }, true);
   };
 
   const updateStudentsState = (updated: Student[]) => {
@@ -817,7 +925,10 @@ export default function App() {
     setWebsiteConfig(updated);
     stateRef.current.websiteConfig = updated;
     safeSetItem(KEYS.WEBSITE_CONFIG, JSON.stringify(updated));
-    triggerAutoSave({ websiteConfig: updated });
+    broadcastLocalUpdate('website', { websiteConfig: updated });
+    saveWebsiteConfigDirectly(updated).catch(() => {});
+    // Immediately synchronize any front page / website change to Cloud Firestore & server
+    triggerAutoSave({ websiteConfig: updated }, true);
   };
 
 
@@ -1176,9 +1287,9 @@ export default function App() {
             {/* Real-time Database Sync Indicator Badge */}
             <div className="hidden md:flex items-center">
               {syncStatus === 'saving' ? (
-                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10.5px] font-bold">
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10.5px] font-semibold animate-pulse">
                   <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
-                  <span>Saving updates...</span>
+                  <span>Saving to Cloud...</span>
                 </div>
               ) : syncStatus === 'error' ? (
                 <button
@@ -1187,10 +1298,10 @@ export default function App() {
                     saveStateToDatabaseImmediately();
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 hover:text-amber-900 text-[10.5px] font-bold transition-all cursor-pointer shadow-3xs"
-                  title="Offline Mode - Changes are saved locally on this computer. Click to retry cloud sync."
+                  title="Cloud Sync Pending / Saved Locally. Click to retry syncing directly to Cloud Firestore."
                 >
                   <CloudOff className="w-3 h-3 text-amber-600" />
-                  <span>Offline • Saved Locally</span>
+                  <span>Cloud Offline • Saved Locally (Click to sync)</span>
                 </button>
               ) : (
                 <button 
@@ -1198,11 +1309,12 @@ export default function App() {
                     await saveStateToDatabaseImmediately();
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-900 text-[10.5px] font-semibold shadow-3xs cursor-pointer transition-all"
-                  title={lastSavedTime ? `Saved to Cloud Firestore & Local Database at ${lastSavedTime}. Click to save now.` : "Database Connected & Synced. Click to save now."}
+                  title={lastSavedTime ? `Synchronized to Cloud Firestore & Server at ${lastSavedTime}. Click to re-sync now.` : "Cloud Database Connected & Synced. Click to save now."}
                 >
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
-                  <span>Saved to Database</span>
-                  {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime})</span>}
+                  <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
+                  <span>Cloud Synced</span>
+                  {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime.replace(' (Cloud Synced)', '')})</span>}
                 </button>
               )}
             </div>

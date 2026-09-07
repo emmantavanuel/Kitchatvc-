@@ -16,6 +16,7 @@ import ApplicationStatusModal from './ApplicationStatusModal';
 import AdmissionLetterModal from './AdmissionLetterModal';
 import WebsiteEditor from './WebsiteEditor';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
+import { compressImageFile } from '../lib/imageUtils';
 
 interface WebsiteFrontPageProps {
   onNavigateToPortal: () => void;
@@ -50,27 +51,37 @@ export default function WebsiteFrontPage({
   const quickUploadFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingManagerId, setUploadingManagerId] = useState<string | null>(null);
 
-  const handleDirectManagerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [frontPageSyncToast, setFrontPageSyncToast] = useState<string | null>(null);
+
+  const showFrontPageNotice = (msg: string) => {
+    setFrontPageSyncToast(msg);
+    setTimeout(() => setFrontPageSyncToast(null), 3500);
+  };
+
+  const handleDirectManagerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !uploadingManagerId) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    try {
+      showFrontPageNotice("Optimizing & uploading photo to Cloud Server...");
+      const compressedBase64 = await compressImageFile(file, 800, 800, 0.82);
       const currentManagers = websiteConfig.managers && websiteConfig.managers.length > 0 
         ? websiteConfig.managers 
         : DEFAULT_WEBSITE_CONFIG.managers;
       const updated = currentManagers.map(m =>
-        m.id === uploadingManagerId ? { ...m, image: base64 } : m
+        m.id === uploadingManagerId ? { ...m, image: compressedBase64 } : m
       );
       onUpdateWebsiteConfig({
         ...websiteConfig,
         managers: updated
       });
       setUploadingManagerId(null);
-    };
-    reader.readAsDataURL(file);
-    // Reset file input so selecting same file again fires event
-    if (e.target) e.target.value = '';
+      showFrontPageNotice("Photo saved automatically to Cloud Server!");
+    } catch (err) {
+      console.error("Photo compression/upload error:", err);
+      showFrontPageNotice("Failed to process photo.");
+    } finally {
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleDirectRemovePhoto = (id: string) => {
@@ -84,6 +95,7 @@ export default function WebsiteFrontPage({
       ...websiteConfig,
       managers: updated
     });
+    showFrontPageNotice("Photo removed & updated on Cloud Server.");
   };
 
   // Modals
@@ -135,7 +147,15 @@ export default function WebsiteFrontPage({
   };
 
   return (
-    <div className="min-h-screen bg-[#FCFBF9] text-[#2C1F15] font-sans flex flex-col">
+    <div className="min-h-screen bg-[#FCFBF9] text-[#2C1F15] font-sans flex flex-col relative">
+      {/* Front page live cloud save toast notification */}
+      {frontPageSyncToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 bg-slate-900/95 text-white rounded-xl shadow-2xl border border-emerald-500/50 backdrop-blur-md animate-fade-in text-xs sm:text-sm font-medium">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+          <span>{frontPageSyncToast}</span>
+        </div>
+      )}
+
       {/* Hidden file input for quick direct portrait uploads */}
       <input 
         ref={quickUploadFileInputRef} 

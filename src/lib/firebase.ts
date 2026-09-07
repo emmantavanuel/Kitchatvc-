@@ -43,12 +43,11 @@ export async function testConnection(): Promise<boolean> {
   }
 }
 
-// Client-side Firestore backoff tracking to prevent freezes on quota exhaustion
-let clientFirestoreBackoffUntil = 0;
+// Client-side Firestore error tracking
+let lastFirestoreErrorMessage: string | null = null;
 
 /**
- * Load consolidated application state from Firestore or local server API,
- * safely respecting device-local timestamps so newer local edits are never overwritten.
+ * Load consolidated application state from Firestore or local server API.
  */
 export async function loadApplicationState(localLastUpdated?: string | null): Promise<any | null> {
   let cloudState: any = null;
@@ -59,7 +58,7 @@ export async function loadApplicationState(localLastUpdated?: string | null): Pr
     const docRef = doc(db, 'app_state', 'timetable_state');
     const docSnap: any = await Promise.race([
       getDoc(docRef),
-      new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 3000))
+      new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 12000))
     ]);
 
     if (docSnap && docSnap.exists()) {
@@ -80,7 +79,7 @@ export async function loadApplicationState(localLastUpdated?: string | null): Pr
   try {
     const res = await Promise.race([
       fetch('/api/state'),
-      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('API read timeout')), 2000))
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('API read timeout')), 10000))
     ]);
     if (res.ok) {
       const contentType = res.headers.get('content-type') || '';
@@ -114,13 +113,12 @@ export async function loadApplicationState(localLastUpdated?: string | null): Pr
   }
 
   // If local device storage has a newer timestamp than the remote database,
-  // DO NOT overwrite the user's latest updates with an older snapshot!
+  // check if local storage actually has data before discarding remote state
   if (localLastUpdated && bestRemoteTimestamp) {
     const localTime = new Date(localLastUpdated).getTime();
     const remoteTime = new Date(bestRemoteTimestamp).getTime();
-    if (localTime > remoteTime) {
-      console.log(`[Database] Local device data (${localLastUpdated}) is newer than remote database (${bestRemoteTimestamp}). Preserving latest local updates.`);
-      return null;
+    if (localTime > remoteTime && bestRemoteState) {
+      console.log(`[Database] Local device timestamp is newer. Returning remote state as base with local precedence.`);
     }
   }
 
@@ -142,7 +140,7 @@ export async function saveApplicationState(payload: any): Promise<{
   isCloudSynced: boolean;
   error?: string;
 }> {
-  // If a save is already in flight, queue this newest payload and return optimistic success
+  // If a save is already in flight, queue this newest payload
   if (isSaveInProgress) {
     pendingSavePayload = payload;
     return {
@@ -161,7 +159,6 @@ export async function saveApplicationState(payload: any): Promise<{
     if (pendingSavePayload) {
       const nextPayload = pendingSavePayload;
       pendingSavePayload = null;
-      // Drain in next microtask without blocking
       setTimeout(() => {
         saveApplicationState(nextPayload);
       }, 50);
@@ -175,7 +172,7 @@ export async function saveApplicationState(payload: any): Promise<{
 
 async function executeSave(payload: any) {
   // Deep clone and clean all undefined properties so Firestore/JSON never reject
-  const cleanPayload = JSON.parse(JSON.stringify(payload));
+  const cleanPayload = JSON.parse(JSON.stringify(payload, (k, v) => (v === undefined ? null : v)));
   const nowIso = new Date().toISOString();
 
   let firestoreSaved = false;
@@ -190,7 +187,7 @@ async function executeSave(payload: any) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cleanPayload)
       }),
-      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('Server write timeout')), 2500))
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('Server write timeout')), 15000))
     ]);
 
     if (res.ok) {
@@ -200,37 +197,29 @@ async function executeSave(payload: any) {
         if (json.firestoreSaved) firestoreSaved = true;
       }
     }
-  } catch (apiErr) {
+  } catch (apiErr: any) {
     // Normal on static cPanel hosting where /api/state is not hosted
   }
 
-  // 2. Direct Cloud Firestore write (if not already handled by server and not in backoff)
-  if (!firestoreSaved && Date.now() >= clientFirestoreBackoffUntil) {
+  // 2. Direct Cloud Firestore write (if not already handled by server)
+  if (!firestoreSaved) {
     try {
       const docRef = doc(db, 'app_state', 'timetable_state');
       await Promise.race([
         setDoc(docRef, { data: cleanPayload, updatedAt: nowIso }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 2500))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 15000))
       ]);
       firestoreSaved = true;
+      lastFirestoreErrorMessage = null;
     } catch (err: any) {
       firestoreError = err?.message || String(err);
+      lastFirestoreErrorMessage = firestoreError;
       console.warn('[Database] Direct Firestore write notice:', firestoreError);
-      
-      // If daily quota exhausted or timed out, backoff for 5 minutes to avoid freezing UI
-      if (
-        firestoreError.includes('resource-exhausted') ||
-        firestoreError.includes('RESOURCE_EXHAUSTED') ||
-        firestoreError.includes('timeout') ||
-        firestoreError.includes('Quota')
-      ) {
-        clientFirestoreBackoffUntil = Date.now() + 5 * 60 * 1000;
-      }
     }
   }
 
   return {
-    success: true, // Always true because local storage cache was already saved synchronously
+    success: serverSaved || firestoreSaved,
     firestoreSaved,
     serverSaved,
     isCloudSynced: firestoreSaved || serverSaved,

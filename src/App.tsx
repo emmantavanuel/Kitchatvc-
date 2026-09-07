@@ -162,14 +162,29 @@ export default function App() {
       autoSaveTimerRef.current = null;
     }
 
+    const currentRef = stateRef.current || {};
     const fullPayload = {
-      ...stateRef.current,
-      ...(stateOverride || {})
+      users: (stateOverride?.users ?? currentRef.users ?? users)?.length ? (stateOverride?.users ?? currentRef.users ?? users) : users,
+      departments: (stateOverride?.departments ?? currentRef.departments ?? departments)?.length ? (stateOverride?.departments ?? currentRef.departments ?? departments) : departments,
+      courses: (stateOverride?.courses ?? currentRef.courses ?? courses)?.length ? (stateOverride?.courses ?? currentRef.courses ?? courses) : courses,
+      classrooms: (stateOverride?.classrooms ?? currentRef.classrooms ?? classrooms)?.length ? (stateOverride?.classrooms ?? currentRef.classrooms ?? classrooms) : classrooms,
+      units: (stateOverride?.units ?? currentRef.units ?? units)?.length ? (stateOverride?.units ?? currentRef.units ?? units) : units,
+      courseGroups: stateOverride?.courseGroups ?? currentRef.courseGroups ?? courseGroups ?? [],
+      timetableEntries: stateOverride?.timetableEntries ?? currentRef.timetableEntries ?? timetableEntries ?? [],
+      trainerPreferences: stateOverride?.trainerPreferences ?? currentRef.trainerPreferences ?? trainerPreferences ?? [],
+      academicSetting: stateOverride?.academicSetting ?? currentRef.academicSetting ?? academicSetting ?? DEFAULT_ACADEMIC_SETTING,
+      websiteConfig: stateOverride?.websiteConfig ?? currentRef.websiteConfig ?? websiteConfig ?? DEFAULT_WEBSITE_CONFIG,
+      students: (stateOverride?.students ?? currentRef.students ?? students)?.length ? (stateOverride?.students ?? currentRef.students ?? students) : students,
+      feeStructures: (stateOverride?.feeStructures ?? currentRef.feeStructures ?? feeStructures)?.length ? (stateOverride?.feeStructures ?? currentRef.feeStructures ?? feeStructures) : feeStructures,
+      invoices: stateOverride?.invoices ?? currentRef.invoices ?? invoices ?? [],
+      payments: stateOverride?.payments ?? currentRef.payments ?? payments ?? [],
+      installmentPlans: stateOverride?.installmentPlans ?? currentRef.installmentPlans ?? installmentPlans ?? [],
+      feeAuditLogs: stateOverride?.feeAuditLogs ?? currentRef.feeAuditLogs ?? feeAuditLogs ?? [],
+      admissionApplications: stateOverride?.admissionApplications ?? currentRef.admissionApplications ?? admissionApplications ?? [],
+      examMarks: stateOverride?.examMarks ?? currentRef.examMarks ?? examMarks ?? []
     };
 
-    if (stateOverride) {
-      stateRef.current = fullPayload;
-    }
+    stateRef.current = fullPayload;
 
     setSyncStatus('saving');
     setIsErrorBannerDismissed(false);
@@ -218,7 +233,12 @@ export default function App() {
       setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Saved Locally)");
       return true;
     }
-  }, []);
+  }, [
+    users, departments, courses, classrooms, units, courseGroups,
+    timetableEntries, trainerPreferences, academicSetting, websiteConfig,
+    students, feeStructures, invoices, payments, installmentPlans,
+    feeAuditLogs, admissionApplications, examMarks
+  ]);
 
   // AUTOMATIC DEBOUNCED SAVER (Batches multiple rapid updates without UI latency)
   const triggerAutoSave = useCallback((stateOverride?: any) => {
@@ -336,6 +356,7 @@ export default function App() {
             websiteConfig: sWebsiteConfig
           } = loadedState;
           
+          let resolvedUsers: User[] = users;
           if (sUsers) {
             let mappedUsers = sUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true } : u);
             INITIAL_USERS.forEach(seedUser => {
@@ -343,6 +364,7 @@ export default function App() {
                 mappedUsers.push(seedUser);
               }
             });
+            resolvedUsers = mappedUsers;
             setUsers(mappedUsers);
             localStorage.setItem(KEYS.USERS, JSON.stringify(mappedUsers));
           }
@@ -424,6 +446,27 @@ export default function App() {
           setExamMarks(loadedExams);
           localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(loadedExams));
 
+          // Set complete state in stateRef for immediate availability
+          stateRef.current = {
+            users: resolvedUsers,
+            departments: sDepts || INITIAL_DEPARTMENTS,
+            courses: sCourses || INITIAL_COURSES,
+            classrooms: sClassrooms || INITIAL_CLASSROOMS,
+            units: sUnits || INITIAL_UNITS,
+            courseGroups: sCourseGroups || [],
+            timetableEntries: sEntries || INITIAL_TIMETABLE_ENTRIES,
+            trainerPreferences: sPrefs || INITIAL_TRAINER_PREFERENCES,
+            academicSetting: sAcademic || DEFAULT_ACADEMIC_SETTING,
+            websiteConfig: sWebsiteConfig || DEFAULT_WEBSITE_CONFIG,
+            students: loadedStudents,
+            feeStructures: loadedFeeStructures,
+            invoices: loadedInvoices,
+            payments: loadedPayments,
+            installmentPlans: loadedInstallments,
+            feeAuditLogs: loadedFeeLogs,
+            admissionApplications: loadedAdmissions,
+            examMarks: loadedExams
+          };
         } else {
           // No state on server yet! Load local storage fallback or initial seed data, and save to server.
           const storedUsers = localStorage.getItem(KEYS.USERS);
@@ -530,6 +573,7 @@ export default function App() {
             admissionApplications: loadedAdmissions,
             examMarks: loadedExams
           };
+          stateRef.current = initialState;
           saveApplicationState(initialState);
         }
 
@@ -1149,14 +1193,17 @@ export default function App() {
                   <span>Offline • Saved Locally</span>
                 </button>
               ) : (
-                <div 
-                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10.5px] font-semibold shadow-3xs"
-                  title={lastSavedTime ? `Saved automatically at ${lastSavedTime}` : "Database Connected & Synced"}
+                <button 
+                  onClick={async () => {
+                    await saveStateToDatabaseImmediately();
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-900 text-[10.5px] font-semibold shadow-3xs cursor-pointer transition-all"
+                  title={lastSavedTime ? `Saved to Cloud Firestore & Local Database at ${lastSavedTime}. Click to save now.` : "Database Connected & Synced. Click to save now."}
                 >
                   <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
-                  <span>Saved Automatically</span>
+                  <span>Saved to Database</span>
                   {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime})</span>}
-                </div>
+                </button>
               )}
             </div>
           </div>

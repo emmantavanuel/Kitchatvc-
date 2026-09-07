@@ -81,7 +81,7 @@ async function startServer() {
           const docRef = doc(db, "app_state", "timetable_state");
           const docSnap: any = await Promise.race([
             getDoc(docRef),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timed out")), 3000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore read timed out")), 12000))
           ]);
           if (docSnap && docSnap.exists()) {
             const docData = docSnap.data();
@@ -114,55 +114,73 @@ async function startServer() {
     }
   });
 
-  // POST State (Instant saving with resilient fallback)
+  // POST State (Instant saving with resilient fallback and state merging)
   app.post("/api/state", async (req, res) => {
     try {
       const state = req.body;
+      if (!state || typeof state !== 'object') {
+        return res.status(400).json({ success: false, error: "Invalid state payload" });
+      }
+
+      // Load existing state from local storage file to ensure partial updates never drop collections
+      let existingState: any = {};
+      if (fs.existsSync(stateFilePath)) {
+        try {
+          existingState = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8')) || {};
+        } catch (e) {
+          console.warn("[Local] Failed to parse existing state file for merge:", e);
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      // Merge with existing state so all collections are preserved
+      const enrichedState = {
+        ...existingState,
+        ...state,
+        updatedAt: nowIso
+      };
+
+      // Sanitize payload (remove/convert undefined to null so Firestore and JSON never reject)
+      const sanitizedState = JSON.parse(JSON.stringify(enrichedState, (k, v) => (v === undefined ? null : v)));
 
       // 1. Always write to local file as primary durable storage
       let localSaved = false;
-      const nowIso = new Date().toISOString();
-      const enrichedState = { ...state, updatedAt: nowIso };
       try {
-        fs.writeFileSync(stateFilePath, JSON.stringify(enrichedState, null, 2), 'utf-8');
+        fs.writeFileSync(stateFilePath, JSON.stringify(sanitizedState, null, 2), 'utf-8');
         localSaved = true;
       } catch (localWriteError) {
         console.error("[Local] Failed to write local state file:", localWriteError);
       }
 
-      // 2. If Firestore is configured and not in backoff, attempt cloud replica write
+      // 2. If Firestore is configured and not in backoff, persist to Cloud Firestore
+      let firestoreSaved = false;
       if (db && Date.now() >= firestoreBackoffUntil) {
         try {
           const docRef = doc(db, "app_state", "timetable_state");
           await Promise.race([
-            setDoc(docRef, { data: enrichedState, updatedAt: nowIso }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timed out")), 2500))
+            setDoc(docRef, { data: sanitizedState, updatedAt: nowIso }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore write timed out")), 15000))
           ]);
+          firestoreSaved = true;
           console.log("[Firebase] Saved state to Firestore database successfully.");
-          return res.json({ success: true, firestoreSaved: true, localSaved, updatedAt: nowIso });
         } catch (firestoreWriteError: any) {
           const errMsg = firestoreWriteError?.message || String(firestoreWriteError);
-          console.warn("[Firebase] Write to Firestore failed, backing off:", errMsg);
+          console.warn("[Firebase] Write to Firestore notice:", errMsg);
           
-          // If quota is exhausted or request timed out, enter 5-minute backoff so subsequent requests are instantaneous
-          firestoreBackoffUntil = Date.now() + 5 * 60 * 1000;
-
-          // If local save succeeded, report SUCCESS to client so user is never interrupted
-          if (localSaved) {
-            return res.json({ 
-              success: true, 
-              firestoreSaved: false, 
-              localSaved: true, 
-              updatedAt: nowIso,
-              warning: "Saved to server database (Cloud Firestore daily quota limit reached; server database is fully up-to-date)." 
-            });
+          // Only back off briefly (15s) if quota is strictly exhausted
+          if (errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota')) {
+            firestoreBackoffUntil = Date.now() + 15 * 1000;
           }
         }
       }
 
-      // If in backoff or no Firestore, but local save succeeded, return success
-      if (localSaved) {
-        return res.json({ success: true, firestoreSaved: false, localSaved: true, updatedAt: nowIso });
+      if (localSaved || firestoreSaved) {
+        return res.json({ 
+          success: true, 
+          firestoreSaved, 
+          localSaved, 
+          updatedAt: nowIso 
+        });
       }
 
       res.status(500).json({ success: false, error: "Failed to save state to storage" });

@@ -1,4 +1,20 @@
-export type UserRole = 'admin' | 'manager' | 'principal' | 'hod' | 'trainer' | 'registrar' | 'finance_officer' | 'auditor' | 'examinations_officer' | 'student' | 'review' | 'reviewer';
+export type UserRole = 
+  | 'admin' 
+  | 'principal' 
+  | 'deputy_academics' 
+  | 'hod' 
+  | 'trainer' 
+  | 'trainee' 
+  | 'student' 
+  | 'quality_assurance' 
+  | 'assessor' 
+  | 'manager' 
+  | 'registrar' 
+  | 'finance_officer' 
+  | 'auditor' 
+  | 'examinations_officer' 
+  | 'review' 
+  | 'reviewer';
 
 export interface User {
   id: string;
@@ -277,12 +293,31 @@ export interface WebsiteAdvert {
   category: string; // 'Careers' | 'Admissions' | 'Tenders' | 'Events' | 'Announcements' | string
   description: string;
   image?: string; // uploaded banner image data URL or image path
+  documentUrl?: string; // uploaded PDF or document Data URL or path
+  documentName?: string; // file name (e.g. application_form.pdf)
+  documentSize?: string; // e.g. 1.2 MB
   date: string;
   deadline?: string;
   ref?: string;
   actionText?: string;
   actionLink?: string;
   active: boolean;
+}
+
+export interface WebsiteDownloadDocument {
+  id: string;
+  title: string;
+  category: string; // 'Admission' | 'Finance' | 'Policy' | 'Academic' | 'Attachment' | 'Examination' | 'Tenders' | string
+  ref?: string;
+  fileData?: string; // base64 Data URL or server /uploads/ url
+  fileName?: string;
+  fileSize?: string;
+  fileType?: string; // e.g. 'application/pdf'
+  dateAdded: string;
+  deadline?: string; // For tenders
+  status?: string; // 'Open' | 'Closed' | 'Active'
+  description?: string;
+  downloadsCount?: number;
 }
 
 export interface WebsiteCoreValueItem {
@@ -309,6 +344,11 @@ export interface WebsiteConfig {
   workingHours: string;
   intakeAnnouncement: string;
   
+  // Media & Branding
+  logoUrl?: string;
+  heroImageUrl?: string;
+  principalImageUrl?: string;
+
   // Hero & Overview
   heroHeadline: string;
   heroSubheadline: string;
@@ -324,6 +364,12 @@ export interface WebsiteConfig {
   
   // Adverts & Notices
   adverts: WebsiteAdvert[];
+
+  // Official Downloads & Document Repository (PDFs)
+  downloads?: WebsiteDownloadDocument[];
+
+  // Tenders & Procurement (PDFs)
+  tenders?: WebsiteDownloadDocument[];
   
   // Public Quick Stats
   stats: WebsiteStatItem[];
@@ -336,6 +382,153 @@ export interface WebsiteConfig {
   // Meta
   lastUpdated?: string;
   updatedBy?: string;
+}
+
+// ============================================================================
+// TVET PORTFOLIO OF EVIDENCE (PoE) TYPES & WORKFLOW SCHEMAS
+// ============================================================================
+
+export type PoeType = 'trainer' | 'trainee';
+
+export type PoeCategory =
+  // Trainer Professional Evidence
+  | 'scheme_of_work'
+  | 'lesson_plan'
+  | 'record_of_work'
+  | 'assessment_tool'
+  | 'learning_guide'
+  | 'cpd_certificate'
+  | 'attendance_register'
+  | 'curriculum_cbet'
+  | 'other_trainer_evidence'
+  // Trainee Competency Evidence
+  | 'practical_project'
+  | 'industrial_attachment'
+  | 'competency_task'
+  | 'attachment_logbook'
+  | 'assessment_assignment'
+  | 'rpl_prior_evidence'
+  | 'safety_osha_certification'
+  | 'other_trainee_evidence';
+
+export type PoeStatus = 
+  | 'draft'
+  | 'submitted'
+  | 'under_review'
+  | 'revision_requested'
+  | 'approved'
+  | 'verified'
+  | 'rejected';
+
+export type PoeCompetencyGrade = 
+  | 'competent'
+  | 'not_yet_competent'
+  | 'distinction'
+  | 'credit'
+  | 'pass'
+  | 'pending';
+
+export interface PoeRubricScore {
+  criterionId: string;
+  criterionName: string;
+  maxScore: number;
+  scoreAwarded: number;
+  remarks?: string;
+}
+
+export interface PoeReview {
+  id: string;
+  documentId: string;
+  reviewerId: string;
+  reviewerName: string;
+  reviewerRole: UserRole;
+  dateReviewed: string;
+  feedbackComments: string;
+  rubricScores?: PoeRubricScore[];
+  overallScore?: number;
+  maxPossibleScore?: number;
+  decision: 'approved' | 'revision_requested' | 'rejected' | 'verified';
+}
+
+export interface PoeVerificationStamp {
+  verifiedBy: string;
+  verifierName: string;
+  verifierRole: 'quality_assurance' | 'assessor' | 'deputy_academics' | 'principal' | string;
+  verificationDate: string;
+  verificationCode: string; // e.g. "KTVC-QA-2026-8894"
+  comments: string;
+  complianceStatus: 'fully_compliant' | 'minor_gaps_noted' | 'non_compliant';
+  standardsBody?: 'TVETA' | 'CDACC' | 'KNEC' | 'INTERNAL_QA';
+}
+
+export interface PoeDocument {
+  id: string;
+  poeType: PoeType; // 'trainer' | 'trainee'
+  title: string;
+  description?: string;
+  category: PoeCategory;
+  targetUnitId?: string;
+  targetUnitName?: string;
+  targetCourseId?: string;
+  targetCourseName?: string;
+  departmentId: string;
+  departmentName?: string;
+  
+  // Owner info
+  ownerId: string;
+  ownerName: string;
+  ownerRole: 'trainer' | 'trainee' | 'student';
+  ownerIdentifier?: string; // Reg No. for student/trainee, PF No. for trainer
+  ownerEmail?: string;
+  
+  // Academic context
+  academicYear: string; // e.g. "2026/2027"
+  termSemester: string; // e.g. "Term 1"
+  
+  // Document metadata
+  fileName: string;
+  fileSize: string; // e.g. "2.4 MB"
+  fileType: string; // e.g. "application/pdf"
+  fileData?: string; // base64 or object URL (when uploaded)
+  version: string; // e.g. "v1.0", "v1.1"
+  dateUploaded: string;
+  dateModified?: string;
+  
+  // Workflow state
+  status: PoeStatus;
+  competencyGrade?: PoeCompetencyGrade;
+  tags: string[];
+  
+  // Reviews and audit sign-offs
+  reviews: PoeReview[];
+  verificationStamp?: PoeVerificationStamp;
+}
+
+export interface PoeNotification {
+  id: string;
+  recipientId: string; // specific user ID or "all_trainers", "all_hods", "qa"
+  recipientRole?: UserRole;
+  senderName: string;
+  title: string;
+  message: string;
+  documentId?: string;
+  dateSent: string;
+  isRead: boolean;
+  type: 'submission' | 'review_completed' | 'revision_needed' | 'verified' | 'compliance_alert';
+}
+
+export interface PoeRubricCriterion {
+  id: string;
+  name: string;
+  maxScore: number;
+  description: string;
+}
+
+export interface PoeRubric {
+  id: string;
+  title: string;
+  targetCategory: PoeCategory;
+  criteria: PoeRubricCriterion[];
 }
 
 

@@ -735,6 +735,142 @@ export const DEFAULT_WEBSITE_CONFIG: WebsiteConfig = {
     { id: 'stat_4', label: 'Graduate Employability', value: '94%', helper: 'Industry & self-employment' }
   ],
 
+  // Official College Downloads (PDF Documents)
+  downloads: [
+    {
+      id: 'doc_adm_form',
+      title: 'Official Trainee Application & Registration Form 2026/2027',
+      category: 'Admission',
+      ref: 'KTVC/ADM/FORM/2026',
+      fileName: 'KTVC_Trainee_Application_Form_2026.pdf',
+      fileSize: '1.2 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-10',
+      description: 'Standard application form for direct admissions, KUCCPS placed trainees, and certificate/diploma intake.',
+      downloadsCount: 342
+    },
+    {
+      id: 'doc_fee_structure',
+      title: 'Government-Sponsored & Self-Sponsored Fee Structure 2026/2027',
+      category: 'Finance',
+      ref: 'KTVC/FIN/FEES/2026',
+      fileName: 'KTVC_Official_Fee_Structure_2026_2027.pdf',
+      fileSize: '850 KB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-12',
+      description: 'Comprehensive breakdown of tuition, capitation subsidised rates, accommodation and exam fee structures.',
+      downloadsCount: 518
+    },
+    {
+      id: 'doc_handbook',
+      title: 'Trainee Rules, Regulations & Code of Conduct Handbook',
+      category: 'Policy',
+      ref: 'KTVC/DOS/POLICY/01',
+      fileName: 'KTVC_Trainee_Handbook_and_Code_of_Conduct.pdf',
+      fileSize: '2.4 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-15',
+      description: 'Guidelines on student discipline, hostel regulations, examination rules, and student union constitution.',
+      downloadsCount: 189
+    },
+    {
+      id: 'doc_calendar',
+      title: 'KITCHA TVC Academic Calendar of Events 2026/2027',
+      category: 'Academic',
+      ref: 'KTVC/ACA/CAL/2026',
+      fileName: 'KTVC_Academic_Calendar_2026_2027.pdf',
+      fileSize: '640 KB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-18',
+      description: 'Term dates, continuous assessment schedules, KNEC/CDACC exam timetables, sports, and graduation dates.',
+      downloadsCount: 275
+    },
+    {
+      id: 'doc_logbook',
+      title: 'Industrial Attachment Trainee Logbook & Assessment Guidelines',
+      category: 'Attachment',
+      ref: 'KTVC/ILL/LOGBOOK/2026',
+      fileName: 'KTVC_Industrial_Attachment_Logbook.pdf',
+      fileSize: '1.8 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-20',
+      description: 'Official daily trainee logbook, field supervisor report templates, and assessor rubric sheets.',
+      downloadsCount: 164
+    },
+    {
+      id: 'doc_cdacc_regs',
+      title: 'TVET-CDACC Assessment & Examination Regulations',
+      category: 'Examination',
+      ref: 'KTVC/EXAM/CDACC/2026',
+      fileName: 'TVET_CDACC_Assessment_Regulations_Kitutu_Chache.pdf',
+      fileSize: '920 KB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-25',
+      description: 'Official regulations for institutional assessors, internal verifiers, external verifiers and trainees.',
+      downloadsCount: 198
+    }
+  ],
+
+  // Tenders & Procurement (PDF Documents)
+  tenders: [
+    {
+      id: 'tnd_eng_equip',
+      title: 'Tender for Supply and Delivery of Engineering Workshop Equipment & Tools',
+      category: 'Tenders',
+      ref: 'KTVC/TND/ENG/01/2026-2027',
+      fileName: 'KTVC_Tender_Doc_Engineering_Equipment_2026.pdf',
+      fileSize: '3.1 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-20',
+      deadline: 'September 22, 2026 at 10:00 AM',
+      status: 'Open',
+      description: 'Supply, testing, and commissioning of lathe machines, CNC tooling, welding stations and precision measurement kits.',
+      downloadsCount: 88
+    },
+    {
+      id: 'tnd_lan_wifi',
+      title: 'Tender for Supply, Installation & Commissioning of High-Speed Campus LAN & Wi-Fi',
+      category: 'Tenders',
+      ref: 'KTVC/TND/ICT/02/2026-2027',
+      fileName: 'KTVC_Tender_Doc_Campus_LAN_WiFi_2026.pdf',
+      fileSize: '2.5 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-24',
+      deadline: 'September 26, 2026 at 11:00 AM',
+      status: 'Open',
+      description: 'Fiber backbone structured cabling, enterprise access points, firewall security, and server room equipment.',
+      downloadsCount: 112
+    },
+    {
+      id: 'tnd_suppliers_pq',
+      title: 'Pre-qualification of Suppliers for Provision of Security, Sanitary & Catering Services',
+      category: 'Tenders',
+      ref: 'KTVC/PQ/GEN/03/2026-2027',
+      fileName: 'KTVC_Prequalification_Suppliers_2026_2028.pdf',
+      fileSize: '1.9 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-08-10',
+      deadline: 'September 18, 2026 at 10:00 AM',
+      status: 'Open',
+      description: 'Registration and prequalification of youth, women, and persons with disabilities for statutory TVET campus services.',
+      downloadsCount: 145
+    },
+    {
+      id: 'tnd_books_library',
+      title: 'Supply & Delivery of Trainee Library Books & Technical Manuals',
+      category: 'Tenders',
+      ref: 'KTVC/TND/LIB/04/2026-2027',
+      fileName: 'KTVC_Tender_Library_Books_Technical_Manuals.pdf',
+      fileSize: '1.4 MB',
+      fileType: 'application/pdf',
+      dateAdded: '2026-09-02',
+      deadline: 'October 05, 2026 at 10:00 AM',
+      status: 'Open',
+      description: 'Procurement of curriculum textbooks, CBET occupational standards guides, and digital e-library repository licenses.',
+      downloadsCount: 67
+    }
+  ],
+
   principalName: 'Mr. John Mareri Ondieki',
   principalTitle: 'Principal, Kitutu Chache TVC',
   principalWelcomeMessage: 'Welcome to Kitutu Chache Technical and Vocational College (KITCHA TVC). We are dedicated to providing world-class technical skills, entrepreneurial mindsets, and practical expertise that directly power Kenya\'s industrial growth. Our state-of-the-art engineering workshops, computing labs, and industry-experienced trainers guarantee that every trainee graduates with hands-on competence and immediate workplace value. We welcome all ambitious Kenyans to join us and forge a resilient, prosperous future.'

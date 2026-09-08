@@ -1,20 +1,23 @@
 import React, { useState, useRef } from 'react';
 import { 
-  WebsiteConfig, WebsiteManager, WebsiteAdvert, WebsiteCoreValueItem, WebsiteStatItem, User 
+  WebsiteConfig, WebsiteManager, WebsiteAdvert, WebsiteCoreValueItem, WebsiteStatItem, User, WebsiteDownloadDocument 
 } from '../types';
 import { compressImageFile } from '../lib/imageUtils';
 import { 
   Globe, Users, Megaphone, Building2, Sparkles, Plus, Trash2, Edit2, 
   Upload, Image as ImageIcon, Check, X, Eye, AlertCircle, Save, 
-  ChevronRight, Phone, Mail, MapPin, Calendar, ExternalLink, RefreshCw
+  ChevronRight, Phone, Mail, MapPin, Calendar, ExternalLink, RefreshCw,
+  FileText, FileDown, UploadCloud, FolderDown, Tag, Link2, ShieldCheck, Clock
 } from 'lucide-react';
+import { uploadMediaFile, saveWebsiteConfigDirectly } from '../lib/firebase';
+import WebsiteDocumentsTab from './website/WebsiteDocumentsTab';
 
 interface WebsiteEditorProps {
   config: WebsiteConfig;
   onSaveConfig: (updated: WebsiteConfig) => void;
   onClose?: () => void;
   currentUser?: User;
-  initialTab?: 'management' | 'adverts' | 'identity' | 'hero' | 'stats';
+  initialTab?: 'management' | 'adverts' | 'identity' | 'hero' | 'stats' | 'documents';
 }
 
 export default function WebsiteEditor({
@@ -29,10 +32,12 @@ export default function WebsiteEditor({
     managers: config.managers || [],
     adverts: config.adverts || [],
     coreValues: config.coreValues || [],
-    stats: config.stats || []
+    stats: config.stats || [],
+    downloads: config.downloads || [],
+    tenders: config.tenders || []
   }));
 
-  const [activeTab, setActiveTab] = useState<'management' | 'adverts' | 'identity' | 'hero' | 'stats'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'management' | 'adverts' | 'identity' | 'hero' | 'stats' | 'documents'>(initialTab);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
   // Management sub-states
@@ -46,7 +51,18 @@ export default function WebsiteEditor({
   const [isAddingAdvert, setIsAddingAdvert] = useState(false);
   const advertFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Helper to trigger save
+  // Document & Tender sub-states
+  const [downloadSubTab, setDownloadSubTab] = useState<'downloads' | 'tenders'>('downloads');
+  const [editingDownload, setEditingDownload] = useState<WebsiteDownloadDocument | null>(null);
+  const [isAddingDownload, setIsAddingDownload] = useState(false);
+  const [editingTender, setEditingTender] = useState<WebsiteDownloadDocument | null>(null);
+  const [isAddingTender, setIsAddingTender] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadProgressMsg, setUploadProgressMsg] = useState<string | null>(null);
+  const downloadFileInputRef = useRef<HTMLInputElement | null>(null);
+  const tenderFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Helper to trigger save with direct Cloud Firestore & local disk sync
   const handleSaveAll = () => {
     const updated = {
       ...formData,
@@ -54,12 +70,13 @@ export default function WebsiteEditor({
       updatedBy: currentUser?.name || 'Super Admin'
     };
     onSaveConfig(updated);
-    setSaveSuccessMessage('Website content saved and synchronized successfully!');
+    saveWebsiteConfigDirectly(updated);
+    setSaveSuccessMessage('Website content & media saved to Cloud and synchronized successfully!');
     setTimeout(() => setSaveSuccessMessage(null), 4000);
   };
 
-  // Convert uploaded image to Data URL with automatic compression to keep payloads lightweight
-  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>, callback: (dataUrl: string) => void) => {
+  // Convert uploaded image and upload to cloud server media storage
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>, callback: (url: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -68,19 +85,121 @@ export default function WebsiteEditor({
       return;
     }
 
+    setIsUploadingMedia(true);
+    setUploadProgressMsg(`Uploading image ${file.name} to cloud server...`);
+
     try {
-      const compressedDataUrl = await compressImageFile(file, 800, 800, 0.82);
-      callback(compressedDataUrl);
+      const compressedDataUrl = await compressImageFile(file, 900, 900, 0.85);
+      const uploadRes = await uploadMediaFile(compressedDataUrl, file.name, file.type);
+      if (uploadRes && uploadRes.url) {
+        callback(uploadRes.url);
+      } else {
+        callback(compressedDataUrl);
+      }
     } catch (err) {
-      console.warn('Image compression fallback to reader:', err);
+      console.warn('Image upload fallback:', err);
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         if (typeof event.target?.result === 'string') {
-          callback(event.target.result);
+          const res = await uploadMediaFile(event.target.result, file.name, file.type);
+          callback(res?.url || event.target.result);
         }
       };
       reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingMedia(false);
+      setUploadProgressMsg(null);
     }
+  };
+
+  // Handle uploading PDFs and document files directly to cloud storage
+  const handleUploadDocumentFile = async (
+    file: File, 
+    callback: (info: { url: string; fileName: string; fileSize: string; fileType: string }) => void
+  ) => {
+    setIsUploadingMedia(true);
+    setUploadProgressMsg(`Uploading ${file.name} to cloud server...`);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const base64Data = ev.target?.result as string;
+        if (base64Data) {
+          const res = await uploadMediaFile(base64Data, file.name, file.type || 'application/pdf');
+          const sizeKb = (file.size / 1024).toFixed(0);
+          const sizeStr = Number(sizeKb) > 1024 ? `${(Number(sizeKb) / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+          callback({
+            url: res.url,
+            fileName: file.name,
+            fileSize: sizeStr,
+            fileType: file.type.includes('pdf') || file.name.endsWith('.pdf') ? 'PDF' : file.name.endsWith('.docx') ? 'DOCX' : 'PDF'
+          });
+        }
+        setIsUploadingMedia(false);
+        setUploadProgressMsg(null);
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Document upload error:', err);
+      setIsUploadingMedia(false);
+      setUploadProgressMsg(null);
+      alert('Failed to upload document to server.');
+    }
+  };
+
+  // Document (Downloads) CRUD
+  const handleSaveDownload = (docItem: WebsiteDownloadDocument) => {
+    const existing = formData.downloads || [];
+    let updated: WebsiteDownloadDocument[];
+    if (existing.some(d => d.id === docItem.id)) {
+      updated = existing.map(d => d.id === docItem.id ? docItem : d);
+    } else {
+      updated = [docItem, ...existing];
+    }
+    const newConfig = { ...formData, downloads: updated };
+    setFormData(newConfig);
+    onSaveConfig(newConfig);
+    saveWebsiteConfigDirectly(newConfig);
+    setEditingDownload(null);
+    setIsAddingDownload(false);
+    setSaveSuccessMessage('Official document saved and published!');
+    setTimeout(() => setSaveSuccessMessage(null), 3500);
+  };
+
+  const handleDeleteDownload = (docId: string) => {
+    if (!window.confirm('Are you sure you want to remove this official document download from the front website?')) return;
+    const updated = (formData.downloads || []).filter(d => d.id !== docId);
+    const newConfig = { ...formData, downloads: updated };
+    setFormData(newConfig);
+    onSaveConfig(newConfig);
+    saveWebsiteConfigDirectly(newConfig);
+  };
+
+  // Tender CRUD
+  const handleSaveTender = (tenderItem: WebsiteDownloadDocument) => {
+    const existing = formData.tenders || [];
+    let updated: WebsiteDownloadDocument[];
+    if (existing.some(t => t.id === tenderItem.id)) {
+      updated = existing.map(t => t.id === tenderItem.id ? tenderItem : t);
+    } else {
+      updated = [tenderItem, ...existing];
+    }
+    const newConfig = { ...formData, tenders: updated };
+    setFormData(newConfig);
+    onSaveConfig(newConfig);
+    saveWebsiteConfigDirectly(newConfig);
+    setEditingTender(null);
+    setIsAddingTender(false);
+    setSaveSuccessMessage('Tender notice saved and updated!');
+    setTimeout(() => setSaveSuccessMessage(null), 3500);
+  };
+
+  const handleDeleteTender = (tenderId: string) => {
+    if (!window.confirm('Are you sure you want to remove this tender notice?')) return;
+    const updated = (formData.tenders || []).filter(t => t.id !== tenderId);
+    const newConfig = { ...formData, tenders: updated };
+    setFormData(newConfig);
+    onSaveConfig(newConfig);
+    saveWebsiteConfigDirectly(newConfig);
   };
 
   // ==========================================
@@ -288,6 +407,21 @@ export default function WebsiteEditor({
         >
           <Globe className="w-4 h-4 text-[#BA8D5C]" />
           <span>Key Statistics</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('documents')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeTab === 'documents'
+              ? 'bg-[#281A10] text-white shadow-xs'
+              : 'text-[#453629] hover:bg-[#EADBCA]/50'
+          }`}
+        >
+          <FolderDown className="w-4 h-4 text-[#BA8D5C]" />
+          <span>Downloads, PDFs & Tenders</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-white/20 rounded-full">
+            {(formData.downloads?.length || 0) + (formData.tenders?.length || 0)}
+          </span>
         </button>
       </div>
 
@@ -936,6 +1070,23 @@ export default function WebsiteEditor({
               </button>
             </div>
           </div>
+        )}
+
+        {/* ====================================================================
+            TAB 6: DOWNLOADS, PDFs & TENDERS (CLOUD PERSISTENCE)
+        ==================================================================== */}
+        {activeTab === 'documents' && (
+          <WebsiteDocumentsTab
+            downloads={formData.downloads || []}
+            tenders={formData.tenders || []}
+            onSaveDownload={handleSaveDownload}
+            onDeleteDownload={handleDeleteDownload}
+            onSaveTender={handleSaveTender}
+            onDeleteTender={handleDeleteTender}
+            onUploadMediaFile={handleUploadDocumentFile}
+            isUploadingMedia={isUploadingMedia}
+            uploadProgressMsg={uploadProgressMsg}
+          />
         )}
       </div>
 

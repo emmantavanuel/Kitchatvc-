@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Cloud, CloudOff, RefreshCw, AlertTriangle, CheckCircle2, WifiOff, Database, X, Globe, ArrowLeft, ArrowRight
+  Cloud, CloudOff, RefreshCw, AlertTriangle, CheckCircle2, WifiOff, Database, X, Globe, ArrowLeft, ArrowRight, Award, ShieldCheck
 } from 'lucide-react';
 import { 
   User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, TrainerSlotPreference, CourseGroup,
   Student, FeeStructure, Invoice, PaymentTransaction, InstallmentPlan, FeeAuditLog, AdmissionApplication, ExamMark,
-  WebsiteConfig
+  WebsiteConfig, PoeDocument, PoeNotification, PoeRubric
 } from './types';
 import { 
   INITIAL_USERS, INITIAL_DEPARTMENTS, INITIAL_COURSES, INITIAL_CLASSROOMS, 
@@ -16,6 +16,9 @@ import {
   INITIAL_INSTALLMENT_PLANS, INITIAL_FEE_AUDIT_LOGS, INITIAL_ADMISSION_APPLICATIONS, INITIAL_EXAM_MARKS
 } from './data/feeSeedData';
 import { DEFAULT_WEBSITE_CONFIG } from './data/websiteData';
+import { 
+  INITIAL_POE_DOCUMENTS, INITIAL_POE_NOTIFICATIONS, INITIAL_POE_RUBRICS 
+} from './data/poeSeedData';
 import Login from './components/Login';
 import AdminDashboard from './components/AdminDashboard';
 import HodDashboard from './components/HodDashboard';
@@ -23,6 +26,7 @@ import TrainerDashboard from './components/TrainerDashboard';
 import ReviewerDashboard from './components/ReviewerDashboard';
 import FeeDashboard from './components/FeeDashboard';
 import WebsiteFrontPage from './components/WebsiteFrontPage';
+import PoeDashboard from './components/PoeDashboard';
 import { 
   loadApplicationState, 
   saveApplicationState, 
@@ -55,7 +59,10 @@ const KEYS = {
   FEE_AUDIT_LOGS: `${STORAGE_PREFIX}fee_audit_logs`,
   ADMISSION_APPLICATIONS: `${STORAGE_PREFIX}admission_applications`,
   EXAM_MARKS: `${STORAGE_PREFIX}exam_marks`,
-  WEBSITE_CONFIG: `${STORAGE_PREFIX}website_config`
+  WEBSITE_CONFIG: `${STORAGE_PREFIX}website_config`,
+  POE_DOCUMENTS: `${STORAGE_PREFIX}poe_documents`,
+  POE_NOTIFICATIONS: `${STORAGE_PREFIX}poe_notifications`,
+  POE_RUBRICS: `${STORAGE_PREFIX}poe_rubrics`
 };
 
 // Resilient localStorage write wrapper
@@ -94,8 +101,13 @@ export default function App() {
   const [admissionApplications, setAdmissionApplications] = useState<AdmissionApplication[]>([]);
   const [examMarks, setExamMarks] = useState<ExamMark[]>([]);
 
+  // TVET Portfolio of Evidence (PoE) states
+  const [poeDocuments, setPoeDocuments] = useState<PoeDocument[]>(INITIAL_POE_DOCUMENTS);
+  const [poeNotifications, setPoeNotifications] = useState<PoeNotification[]>(INITIAL_POE_NOTIFICATIONS);
+  const [poeRubrics, setPoeRubrics] = useState<PoeRubric[]>(INITIAL_POE_RUBRICS);
+
   // Workspace and public website state
-  const [activeWorkspace, setActiveWorkspace] = useState<'timetable' | 'finance'>('timetable');
+  const [activeWorkspace, setActiveWorkspace] = useState<'timetable' | 'finance' | 'portfolio'>('timetable');
   const [currentView, setCurrentView] = useState<'website' | 'portal'>('website');
 
   // Auth state
@@ -131,7 +143,10 @@ export default function App() {
     installmentPlans: [],
     feeAuditLogs: [],
     admissionApplications: [],
-    examMarks: []
+    examMarks: [],
+    poeDocuments: INITIAL_POE_DOCUMENTS,
+    poeNotifications: INITIAL_POE_NOTIFICATIONS,
+    poeRubrics: INITIAL_POE_RUBRICS
   });
 
   // Keep stateRef in sync with React state updates
@@ -154,13 +169,16 @@ export default function App() {
       installmentPlans,
       feeAuditLogs,
       admissionApplications,
-      examMarks
+      examMarks,
+      poeDocuments,
+      poeNotifications,
+      poeRubrics
     };
   }, [
     users, departments, courses, classrooms, units, courseGroups,
     timetableEntries, trainerPreferences, academicSetting, websiteConfig,
     students, feeStructures, invoices, payments, installmentPlans, feeAuditLogs,
-    admissionApplications, examMarks
+    admissionApplications, examMarks, poeDocuments, poeNotifications, poeRubrics
   ]);
 
   // IMMEDIATE DATABASE SAVING FUNCTION (Synchronous local write + Thread-safe background cloud/server write)
@@ -189,7 +207,10 @@ export default function App() {
       installmentPlans: stateOverride?.installmentPlans ?? currentRef.installmentPlans ?? installmentPlans ?? [],
       feeAuditLogs: stateOverride?.feeAuditLogs ?? currentRef.feeAuditLogs ?? feeAuditLogs ?? [],
       admissionApplications: stateOverride?.admissionApplications ?? currentRef.admissionApplications ?? admissionApplications ?? [],
-      examMarks: stateOverride?.examMarks ?? currentRef.examMarks ?? examMarks ?? []
+      examMarks: stateOverride?.examMarks ?? currentRef.examMarks ?? examMarks ?? [],
+      poeDocuments: stateOverride?.poeDocuments ?? currentRef.poeDocuments ?? poeDocuments ?? [],
+      poeNotifications: stateOverride?.poeNotifications ?? currentRef.poeNotifications ?? poeNotifications ?? [],
+      poeRubrics: stateOverride?.poeRubrics ?? currentRef.poeRubrics ?? poeRubrics ?? []
     };
 
     stateRef.current = fullPayload;
@@ -218,6 +239,9 @@ export default function App() {
     if (fullPayload.feeAuditLogs) safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(fullPayload.feeAuditLogs));
     if (fullPayload.admissionApplications) safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(fullPayload.admissionApplications));
     if (fullPayload.examMarks) safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(fullPayload.examMarks));
+    if (fullPayload.poeDocuments) safeSetItem(KEYS.POE_DOCUMENTS, JSON.stringify(fullPayload.poeDocuments));
+    if (fullPayload.poeNotifications) safeSetItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(fullPayload.poeNotifications));
+    if (fullPayload.poeRubrics) safeSetItem(KEYS.POE_RUBRICS, JSON.stringify(fullPayload.poeRubrics));
 
     // 2. Check network connectivity
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -250,7 +274,7 @@ export default function App() {
     users, departments, courses, classrooms, units, courseGroups,
     timetableEntries, trainerPreferences, academicSetting, websiteConfig,
     students, feeStructures, invoices, payments, installmentPlans,
-    feeAuditLogs, admissionApplications, examMarks
+    feeAuditLogs, admissionApplications, examMarks, poeDocuments, poeNotifications, poeRubrics
   ]);
 
   // AUTOMATIC REAL-TIME SAVER (Instant when immediate=true, otherwise debounced)
@@ -279,6 +303,9 @@ export default function App() {
       if (stateOverride.feeAuditLogs) safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(stateOverride.feeAuditLogs));
       if (stateOverride.admissionApplications) safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(stateOverride.admissionApplications));
       if (stateOverride.examMarks) safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(stateOverride.examMarks));
+      if (stateOverride.poeDocuments) safeSetItem(KEYS.POE_DOCUMENTS, JSON.stringify(stateOverride.poeDocuments));
+      if (stateOverride.poeNotifications) safeSetItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(stateOverride.poeNotifications));
+      if (stateOverride.poeRubrics) safeSetItem(KEYS.POE_RUBRICS, JSON.stringify(stateOverride.poeRubrics));
     }
 
     setSyncStatus('saving');
@@ -375,7 +402,10 @@ export default function App() {
             feeAuditLogs: sFeeAuditLogs,
             admissionApplications: sAdmissions,
             examMarks: sExams,
-            websiteConfig: sWebsiteConfig
+            websiteConfig: sWebsiteConfig,
+            poeDocuments: sPoeDocuments,
+            poeNotifications: sPoeNotifications,
+            poeRubrics: sPoeRubrics
           } = loadedState;
           
           let resolvedUsers: User[] = users;
@@ -468,6 +498,19 @@ export default function App() {
           setExamMarks(loadedExams);
           localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(loadedExams));
 
+          // Set PoE variables
+          const loadedPoeDocs = sPoeDocuments || INITIAL_POE_DOCUMENTS;
+          setPoeDocuments(loadedPoeDocs);
+          localStorage.setItem(KEYS.POE_DOCUMENTS, JSON.stringify(loadedPoeDocs));
+
+          const loadedPoeNotifs = sPoeNotifications || INITIAL_POE_NOTIFICATIONS;
+          setPoeNotifications(loadedPoeNotifs);
+          localStorage.setItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(loadedPoeNotifs));
+
+          const loadedPoeRubrics = sPoeRubrics || INITIAL_POE_RUBRICS;
+          setPoeRubrics(loadedPoeRubrics);
+          localStorage.setItem(KEYS.POE_RUBRICS, JSON.stringify(loadedPoeRubrics));
+
           // Set complete state in stateRef for immediate availability
           stateRef.current = {
             users: resolvedUsers,
@@ -487,7 +530,10 @@ export default function App() {
             installmentPlans: loadedInstallments,
             feeAuditLogs: loadedFeeLogs,
             admissionApplications: loadedAdmissions,
-            examMarks: loadedExams
+            examMarks: loadedExams,
+            poeDocuments: loadedPoeDocs,
+            poeNotifications: loadedPoeNotifs,
+            poeRubrics: loadedPoeRubrics
           };
         } else {
           // No state on server yet! Load local storage fallback or initial seed data, and save to server.
@@ -509,6 +555,9 @@ export default function App() {
           const storedFeeLogs = localStorage.getItem(KEYS.FEE_AUDIT_LOGS);
           const storedAdmissions = localStorage.getItem(KEYS.ADMISSION_APPLICATIONS);
           const storedExams = localStorage.getItem(KEYS.EXAM_MARKS);
+          const storedPoeDocs = localStorage.getItem(KEYS.POE_DOCUMENTS);
+          const storedPoeNotifs = localStorage.getItem(KEYS.POE_NOTIFICATIONS);
+          const storedPoeRubrics = localStorage.getItem(KEYS.POE_RUBRICS);
 
           const rawLoadedUsers = storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS;
           let loadedUsers = rawLoadedUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true } : u);
@@ -534,6 +583,9 @@ export default function App() {
           const loadedFeeLogs = storedFeeLogs ? JSON.parse(storedFeeLogs) : INITIAL_FEE_AUDIT_LOGS;
           const loadedAdmissions = storedAdmissions ? JSON.parse(storedAdmissions) : INITIAL_ADMISSION_APPLICATIONS;
           const loadedExams = storedExams ? JSON.parse(storedExams) : INITIAL_EXAM_MARKS;
+          const loadedPoeDocs = storedPoeDocs ? JSON.parse(storedPoeDocs) : INITIAL_POE_DOCUMENTS;
+          const loadedPoeNotifs = storedPoeNotifs ? JSON.parse(storedPoeNotifs) : INITIAL_POE_NOTIFICATIONS;
+          const loadedPoeRubrics = storedPoeRubrics ? JSON.parse(storedPoeRubrics) : INITIAL_POE_RUBRICS;
 
           setUsers(loadedUsers);
           setDepartments(loadedDepts);
@@ -553,6 +605,9 @@ export default function App() {
           setFeeAuditLogs(loadedFeeLogs);
           setAdmissionApplications(loadedAdmissions);
           setExamMarks(loadedExams);
+          setPoeDocuments(loadedPoeDocs);
+          setPoeNotifications(loadedPoeNotifs);
+          setPoeRubrics(loadedPoeRubrics);
 
           // Save fallback/seeded to localStorage
           localStorage.setItem(KEYS.USERS, JSON.stringify(loadedUsers));
@@ -573,6 +628,9 @@ export default function App() {
           localStorage.setItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(loadedFeeLogs));
           localStorage.setItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(loadedAdmissions));
           localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(loadedExams));
+          localStorage.setItem(KEYS.POE_DOCUMENTS, JSON.stringify(loadedPoeDocs));
+          localStorage.setItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(loadedPoeNotifs));
+          localStorage.setItem(KEYS.POE_RUBRICS, JSON.stringify(loadedPoeRubrics));
 
           // Initialize local stateRef for immediate availability
           const initialState = {
@@ -593,7 +651,10 @@ export default function App() {
             installmentPlans: loadedInstallments,
             feeAuditLogs: loadedFeeLogs,
             admissionApplications: loadedAdmissions,
-            examMarks: loadedExams
+            examMarks: loadedExams,
+            poeDocuments: loadedPoeDocs,
+            poeNotifications: loadedPoeNotifs,
+            poeRubrics: loadedPoeRubrics
           };
           stateRef.current = initialState;
           // CRITICAL: NEVER push initialState to the database on boot!
@@ -746,6 +807,28 @@ export default function App() {
           safeSetItem(KEYS.ACADEMIC, incomingJson);
         }
       }
+
+      // 6. TVET Portfolio of Evidence (PoE) real-time cross-tab & cross-machine sync
+      if (update.poeDocuments && Array.isArray(update.poeDocuments)) {
+        const incomingJson = JSON.stringify(update.poeDocuments);
+        const currentJson = JSON.stringify(stateRef.current.poeDocuments);
+        if (incomingJson !== currentJson) {
+          console.log(`[Realtime Sync] PoE Documents updated from ${update.source}: ${update.poeDocuments.length} files.`);
+          setPoeDocuments(update.poeDocuments);
+          stateRef.current.poeDocuments = update.poeDocuments;
+          safeSetItem(KEYS.POE_DOCUMENTS, incomingJson);
+        }
+      }
+
+      if (update.poeNotifications && Array.isArray(update.poeNotifications)) {
+        const incomingJson = JSON.stringify(update.poeNotifications);
+        const currentJson = JSON.stringify(stateRef.current.poeNotifications);
+        if (incomingJson !== currentJson) {
+          setPoeNotifications(update.poeNotifications);
+          stateRef.current.poeNotifications = update.poeNotifications;
+          safeSetItem(KEYS.POE_NOTIFICATIONS, incomingJson);
+        }
+      }
     });
 
     return () => {
@@ -756,7 +839,9 @@ export default function App() {
   // Auto-route users to correct workspace based on roles
   useEffect(() => {
     if (currentUser) {
-      if (['registrar', 'finance_officer', 'auditor', 'principal', 'examinations_officer', 'student'].includes(currentUser.role)) {
+      if (['quality_assurance', 'assessor', 'deputy_academics', 'trainee'].includes(currentUser.role)) {
+        setActiveWorkspace('portfolio');
+      } else if (['registrar', 'finance_officer', 'auditor', 'principal', 'examinations_officer', 'student'].includes(currentUser.role)) {
         setActiveWorkspace('finance');
       } else if (['hod', 'trainer', 'manager', 'review', 'reviewer'].includes(currentUser.role as string)) {
         setActiveWorkspace('timetable');

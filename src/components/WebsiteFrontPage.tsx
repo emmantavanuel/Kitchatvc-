@@ -45,7 +45,7 @@ export default function WebsiteFrontPage({
   
   // Super Admin CMS Modal state
   const [isCmsModalOpen, setIsCmsModalOpen] = useState(false);
-  const [cmsInitialTab, setCmsInitialTab] = useState<'identity' | 'hero' | 'management' | 'adverts' | 'stats' | 'contacts'>('management');
+  const [cmsInitialTab, setCmsInitialTab] = useState<'identity' | 'hero' | 'management' | 'adverts' | 'stats' | 'documents'>('management');
 
   // Quick Direct Manager Portrait Upload
   const quickUploadFileInputRef = useRef<HTMLInputElement>(null);
@@ -1338,37 +1338,70 @@ export default function WebsiteFrontPage({
         ========================================================================= */}
         {activeTab === 'downloads' && (
           <section className="space-y-6 bg-white rounded-2xl p-6 sm:p-10 border border-[#EADBCA] shadow-2xs">
-            <div>
-              <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Document Repository</span>
-              <h2 className="text-3xl font-black text-[#281A10] mt-1">Official College Downloads</h2>
-              <p className="text-[#453629] mt-2 text-sm font-medium">
-                Download official application forms, fee structures, student handbooks, and academic calendars.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#EADBCA] pb-5">
+              <div>
+                <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Document Repository</span>
+                <h2 className="text-3xl font-black text-[#281A10] mt-1">Official College Downloads</h2>
+                <p className="text-[#453629] mt-2 text-sm font-medium">
+                  Download official application forms, fee structures, student handbooks, and academic calendars. All documents are hosted in Cloud storage.
+                </p>
+              </div>
+
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    setCmsInitialTab('documents');
+                    setIsCmsModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Upload / Manage Downloads</span>
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {COLLEGE_INFO.downloads.map((doc, idx) => (
-                <div key={idx} className="p-4 bg-[#FAF8F5] border border-[#EADBCA] rounded-xl flex items-center justify-between gap-4 shadow-2xs">
+              {((websiteConfig.downloads && websiteConfig.downloads.length > 0) ? websiteConfig.downloads : COLLEGE_INFO.downloads).map((doc: any, idx: number) => (
+                <div key={doc.id || idx} className="p-4 bg-[#FAF8F5] border border-[#EADBCA] rounded-xl flex items-center justify-between gap-4 shadow-2xs hover:border-[#C29563] transition-colors">
                   <div className="flex items-center gap-3">
-                    <FileText className="w-8 h-8 text-[#BA8D5C] shrink-0" />
+                    <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0 border border-red-200">
+                      <FileText className="w-5 h-5" />
+                    </div>
                     <div>
                       <h4 className="font-bold text-sm text-[#281A10]">{doc.title}</h4>
-                      <p className="text-[11px] text-[#544030] font-medium">Ref: {doc.ref} • {doc.category} • {doc.size}</p>
+                      <p className="text-[11px] text-[#544030] font-medium">
+                        Ref: {doc.ref || 'KTVC/DOC'} • <span className="text-[#BA8D5C] font-semibold">{doc.category || 'General'}</span> • {doc.fileSize || doc.size || 'PDF'}
+                      </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (doc.title.includes('Application')) {
-                        setIsRegisterOpen(true);
-                      } else {
-                        alert(`Opening official document: ${doc.title} (${doc.ref})`);
-                      }
-                    }}
-                    className="px-3.5 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 shadow-2xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download</span>
-                  </button>
+
+                  {doc.fileData ? (
+                    <a
+                      href={doc.fileData}
+                      target="_blank"
+                      rel="noreferrer"
+                      download={doc.fileName || undefined}
+                      className="px-3.5 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download PDF</span>
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (doc.title.includes('Application')) {
+                          setIsRegisterOpen(true);
+                        } else {
+                          alert(`Opening official document: ${doc.title} (${doc.ref})`);
+                        }
+                      }}
+                      className="px-3.5 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 shadow-2xs cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download</span>
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -1499,35 +1532,82 @@ export default function WebsiteFrontPage({
         ========================================================================= */}
         {activeTab === 'tenders' && (
           <section className="space-y-6 bg-white rounded-2xl p-6 sm:p-10 border border-[#EADBCA] shadow-2xs">
-            <div>
-              <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Procurement</span>
-              <h2 className="text-3xl font-black text-[#281A10] mt-1">Tenders & Supplier Pre-qualification</h2>
-              <p className="text-[#453629] mt-2 text-sm font-medium">
-                Pursuant to the Public Procurement and Asset Disposal Act 2015, Kitutu Chache TVC invites eligible firms to bid for tenders.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#EADBCA] pb-5">
+              <div>
+                <span className="text-[#BA8D5C] text-xs font-bold uppercase tracking-widest">Procurement & Tenders</span>
+                <h2 className="text-3xl font-black text-[#281A10] mt-1">Tenders & Supplier Pre-qualification</h2>
+                <p className="text-[#453629] mt-2 text-sm font-medium">
+                  Pursuant to the Public Procurement and Asset Disposal Act 2015, Kitutu Chache TVC invites eligible firms to bid for tenders. All tender documents and addenda are securely hosted in Cloud storage.
+                </p>
+              </div>
+
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    setCmsInitialTab('documents');
+                    setIsCmsModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Post / Manage Tenders</span>
+                </button>
+              )}
             </div>
 
             <div className="space-y-4">
-              {COLLEGE_INFO.tenders.map((tnd, idx) => (
-                <div key={idx} className="p-5 bg-[#FAF8F5] border border-[#EADBCA] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
-                  <div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 bg-[#E0D2BE] text-[#3B2412] rounded uppercase">
-                      Status: {tnd.status}
-                    </span>
-                    <h4 className="font-bold text-base text-[#281A10] mt-1">{tnd.title}</h4>
-                    <p className="text-xs text-[#544030] mt-0.5 font-medium">
-                      Tender No: <strong className="font-mono text-[#281A10]">{tnd.ref}</strong> • Closing Date: <strong className="text-[#872626]">{tnd.deadline}</strong>
-                    </p>
+              {((websiteConfig.tenders && websiteConfig.tenders.length > 0) ? websiteConfig.tenders : COLLEGE_INFO.tenders).map((tnd: any, idx: number) => {
+                const isOpen = tnd.status?.toLowerCase() === 'open' || tnd.status?.toLowerCase() === 'active';
+                return (
+                  <div key={tnd.id || idx} className="p-5 bg-[#FAF8F5] border border-[#EADBCA] rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs hover:border-[#C29563] transition-colors">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                          isOpen ? 'bg-emerald-100 text-emerald-800' : 'bg-[#E0D2BE] text-[#3B2412]'
+                        }`}>
+                          Status: {tnd.status || 'Active'}
+                        </span>
+                        {tnd.category && (
+                          <span className="text-[10px] text-slate-500 font-semibold">
+                            Category: {tnd.category}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="font-bold text-base text-[#281A10] mt-1">{tnd.title}</h4>
+                      {tnd.description && (
+                        <p className="text-xs text-[#544030] mt-1 font-medium line-clamp-2">
+                          {tnd.description}
+                        </p>
+                      )}
+                      <p className="text-xs text-[#544030] mt-1 font-medium">
+                        Tender No: <strong className="font-mono text-[#281A10]">{tnd.ref}</strong> • Closing Date: <strong className="text-[#872626]">{tnd.deadline}</strong>
+                        {tnd.fileSize && <span> • Size: {tnd.fileSize}</span>}
+                      </p>
+                    </div>
+
+                    {tnd.fileData ? (
+                      <a
+                        href={tnd.fileData}
+                        target="_blank"
+                        rel="noreferrer"
+                        download={tnd.fileName || undefined}
+                        className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Tender Document</span>
+                      </a>
+                    ) : (
+                      <button
+                        onClick={() => alert(`Tender document specification for: ${tnd.ref}\nSubmission Deadline: ${tnd.deadline}\n\nPlease visit the Procurement Office at Kitutu Chache TVC or contact: info@kitutuchachetvc.ac.ke.`)}
+                        className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Inquire Tender</span>
+                      </button>
+                    )}
                   </div>
-                  <button
-                    onClick={() => alert(`Downloading tender document: ${tnd.ref}`)}
-                    className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Download Tender Document
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}

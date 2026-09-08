@@ -47,7 +47,9 @@ export function subscribeToRealtimeUpdates(callback: (payload: {
   courseGroups?: any[];
   websiteConfig?: any;
   academicSetting?: any;
-  source: 'cloud_firestore' | 'cross_tab_broadcast' | 'local_storage';
+  poeDocuments?: any[];
+  poeNotifications?: any[];
+  source: 'cloud_firestore' | 'cross_tab_broadcast' | 'local_storage' | 'server_realtime';
 }) => void): () => void {
   const unsubs: Array<() => void> = [];
 
@@ -256,7 +258,9 @@ export async function saveApplicationState(payload: any): Promise<{
     units: payload.units,
     courseGroups: payload.courseGroups,
     websiteConfig: payload.websiteConfig,
-    academicSetting: payload.academicSetting
+    academicSetting: payload.academicSetting,
+    poeDocuments: payload.poeDocuments,
+    poeNotifications: payload.poeNotifications
   });
 
   if (isSaveInProgress) {
@@ -293,9 +297,9 @@ export async function saveApplicationState(payload: any): Promise<{
 }
 
 /**
- * Dedicated instant save for Timetable entries to ensure zero latency
+ * Dedicated instant save for Timetable entries to ensure zero latency and full overwrite capability
  */
-export async function saveTimetableDirectly(timetableEntries: any[], units?: any[], courseGroups?: any[]) {
+export async function saveTimetableDirectly(timetableEntries: any[], units?: any[], courseGroups?: any[], allowOverwrite: boolean = true) {
   const cleanEntries = JSON.parse(JSON.stringify(timetableEntries, (k, v) => (v === undefined ? null : v)));
   const cleanUnits = units ? JSON.parse(JSON.stringify(units, (k, v) => (v === undefined ? null : v))) : undefined;
   const cleanGroups = courseGroups ? JSON.parse(JSON.stringify(courseGroups, (k, v) => (v === undefined ? null : v))) : undefined;
@@ -311,15 +315,33 @@ export async function saveTimetableDirectly(timetableEntries: any[], units?: any
     await fetch('/api/save-timetable', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timetableEntries: cleanEntries, units: cleanUnits, courseGroups: cleanGroups })
+      body: JSON.stringify({ 
+        timetableEntries: cleanEntries, 
+        units: cleanUnits, 
+        courseGroups: cleanGroups,
+        allowOverwrite: true
+      })
     });
   } catch {}
+
+  // Direct Firestore cloud backup
+  if (db) {
+    try {
+      const nowIso = new Date().toISOString();
+      setDoc(doc(db, 'app_state', 'timetable'), {
+        timetableEntries: cleanEntries,
+        units: cleanUnits || [],
+        courseGroups: cleanGroups || [],
+        updatedAt: nowIso
+      }).catch(() => {});
+    } catch {}
+  }
 
   return true;
 }
 
 /**
- * Dedicated instant save for Front Page Website configuration
+ * Dedicated instant save for Front Page Website configuration directly to Cloud
  */
 export async function saveWebsiteConfigDirectly(websiteConfig: any) {
   const cleanConfig = JSON.parse(JSON.stringify(websiteConfig, (k, v) => (v === undefined ? null : v)));
@@ -337,7 +359,87 @@ export async function saveWebsiteConfigDirectly(websiteConfig: any) {
     });
   } catch {}
 
+  // Cloud Firestore direct write
+  if (db) {
+    try {
+      const nowIso = new Date().toISOString();
+      setDoc(doc(db, 'app_state', 'website'), {
+        websiteConfig: cleanConfig,
+        updatedAt: nowIso
+      }).catch(() => {});
+    } catch {}
+  }
+
   return true;
+}
+
+/**
+ * Dedicated instant save for Portfolio of Evidence (PoE) documents & notifications
+ */
+export async function savePoeDirectly(poeDocuments: any[], poeNotifications?: any[]) {
+  const cleanDocs = JSON.parse(JSON.stringify(poeDocuments, (k, v) => (v === undefined ? null : v)));
+  const cleanNotifs = poeNotifications ? JSON.parse(JSON.stringify(poeNotifications, (k, v) => (v === undefined ? null : v))) : undefined;
+
+  // Broadcast to other tabs on same machine
+  broadcastLocalUpdate('poe', {
+    poeDocuments: cleanDocs,
+    poeNotifications: cleanNotifs
+  });
+
+  try {
+    await fetch('/api/save-poe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ poeDocuments: cleanDocs, poeNotifications: cleanNotifs })
+    });
+  } catch (err) {
+    console.warn('[PoE Sync] API notification:', err);
+  }
+
+  // Cloud Firestore direct write
+  if (db) {
+    try {
+      const nowIso = new Date().toISOString();
+      setDoc(doc(db, 'app_state', 'poe'), {
+        poeDocuments: cleanDocs,
+        poeNotifications: cleanNotifs,
+        updatedAt: nowIso
+      }).catch(() => {});
+    } catch {}
+  }
+
+  return true;
+}
+
+/**
+ * Cloud media file uploader (for PDFs, images, documents)
+ */
+export async function uploadMediaFile(fileData: string, fileName: string, fileType: string): Promise<{
+  success: boolean;
+  url: string;
+  fileName: string;
+  fileSize?: string;
+  fileType: string;
+}> {
+  try {
+    const res = await fetch('/api/upload-media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileData, fileName, fileType })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (err) {
+    console.warn('[Upload] Media upload endpoint note, fallback to data URL:', err);
+  }
+  return {
+    success: true,
+    url: fileData,
+    fileName,
+    fileType
+  };
 }
 
 async function executeSave(payload: any) {

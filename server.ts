@@ -20,6 +20,13 @@ async function startServer() {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
+  // Media uploads directory (for persistent cloud storage of PDFs and images)
+  const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  app.use('/uploads', express.static(uploadsDir));
+
   // Active in-memory cache for ultra-fast, zero-latency state access
   let cachedState: any = null;
   if (fs.existsSync(stateFilePath)) {
@@ -131,15 +138,18 @@ async function startServer() {
   async function persistStateAcrossLayers(incomingPartial: any) {
     const existingState = cachedState || {};
 
-    // DATABASE ARMOR: If database already has scheduled timetables, NEVER let an empty array or initial default 3 seeds overwrite it!
-    if (existingState.timetableEntries && existingState.timetableEntries.length > 0) {
+    // DATABASE PERSISTENCE & OVERWRITE CONTROL:
+    // If incomingPartial doesn't contain timetableEntries, preserve existing database timetable entries
+    if (incomingPartial.timetableEntries === undefined && existingState.timetableEntries) {
+      incomingPartial.timetableEntries = existingState.timetableEntries;
+    } else if (incomingPartial.timetableEntries && existingState.timetableEntries) {
+      // Allow intentional timetable overwriting and modifications!
+      // Only protect against accidental overwrite by the 3 uninitialized mock seeds if existing state has real user entries:
       const incomingEntries = incomingPartial.timetableEntries;
-      if (!incomingEntries || incomingEntries.length === 0) {
-        incomingPartial.timetableEntries = existingState.timetableEntries;
-      } else if (incomingEntries.length <= 3 && existingState.timetableEntries.length > 3) {
+      if (incomingEntries.length <= 3 && existingState.timetableEntries.length > 3 && !incomingPartial.allowOverwrite) {
         const isDefaultSeed = incomingEntries.every((e: any) => ['cs-101-1', 'ee-201-1', 'me-301-1'].includes(e.id));
         if (isDefaultSeed) {
-          console.log("[Protection] Prevented default seed from overwriting scheduled timetable database entries.");
+          console.log("[Protection] Prevented default uninitialized seed from overwriting scheduled timetable database entries.");
           incomingPartial.timetableEntries = existingState.timetableEntries;
         }
       }
@@ -173,7 +183,9 @@ async function startServer() {
       units: cleanState.units,
       courseGroups: cleanState.courseGroups,
       websiteConfig: cleanState.websiteConfig,
-      academicSetting: cleanState.academicSetting
+      academicSetting: cleanState.academicSetting,
+      poeDocuments: cleanState.poeDocuments,
+      poeNotifications: cleanState.poeNotifications
     });
 
     // 4. Non-blocking background cloud backup to Firestore (Detached - NEVER delays response or throws timeout)
@@ -194,6 +206,13 @@ async function startServer() {
           if (cleanState.websiteConfig) {
             await setDoc(doc(db, "app_state", "website"), {
               websiteConfig: cleanState.websiteConfig,
+              updatedAt: nowIso
+            });
+          }
+          if (cleanState.poeDocuments) {
+            await setDoc(doc(db, "app_state", "poe"), {
+              poeDocuments: cleanState.poeDocuments,
+              poeNotifications: cleanState.poeNotifications || [],
               updatedAt: nowIso
             });
           }
@@ -261,6 +280,57 @@ async function startServer() {
     } catch (err: any) {
       console.error("Failed to save website config directly:", err);
       res.status(500).json({ success: false, error: err?.message || "Failed to save website config" });
+    }
+  });
+
+  // Dedicated instant save endpoint for Portfolio of Evidence (PoE) documents & notifications
+  app.post("/api/save-poe", async (req, res) => {
+    try {
+      const { poeDocuments, poeNotifications } = req.body || {};
+      const result = await persistStateAcrossLayers({
+        ...(poeDocuments ? { poeDocuments } : {}),
+        ...(poeNotifications ? { poeNotifications } : {})
+      });
+      res.json(result);
+    } catch (err: any) {
+      console.error("Failed to save PoE documents directly:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to save PoE documents" });
+    }
+  });
+
+  // Dedicated media upload endpoint for front page PDFs and images
+  app.post("/api/upload-media", async (req, res) => {
+    try {
+      const { fileData, fileName, fileType } = req.body || {};
+      if (!fileData || !fileName) {
+        return res.status(400).json({ success: false, error: "Missing file data or file name" });
+      }
+
+      // Handle base64 Data URL (e.g. data:application/pdf;base64,... or data:image/png;base64,...)
+      const matches = fileData.match(/^data:([A-Za-z0-9-+.\/]+);base64,(.+)$/);
+      const cleanFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const uniqueName = `${Date.now()}_${cleanFileName}`;
+      const filePath = path.join(uploadsDir, uniqueName);
+
+      if (matches && matches.length === 3) {
+        const buffer = Buffer.from(matches[2], 'base64');
+        fs.writeFileSync(filePath, buffer);
+      } else {
+        fs.writeFileSync(filePath, fileData, 'utf-8');
+      }
+
+      const fileUrl = `/uploads/${uniqueName}`;
+      console.log(`[Upload] Stored media asset ${uniqueName} (${fileType || 'file'})`);
+      res.json({
+        success: true,
+        url: fileUrl,
+        fileName: cleanFileName,
+        fileType: fileType || 'application/octet-stream',
+        uploadedAt: new Date().toISOString()
+      });
+    } catch (uploadErr: any) {
+      console.error("[Upload Error]:", uploadErr);
+      res.status(500).json({ success: false, error: uploadErr?.message || "Failed to process media upload" });
     }
   });
 

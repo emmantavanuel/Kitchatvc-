@@ -134,6 +134,32 @@ async function startServer() {
     }
   });
 
+  // Helper to deduplicate timetable entries and prevent duplicate or stale records
+  function deduplicateTimetableEntries(entries: any[]): any[] {
+    if (!Array.isArray(entries)) return [];
+    const seenIds = new Set<string>();
+    const seenSlots = new Map<string, any>();
+
+    // Iterate backwards so the latest record for any slot or ID wins
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (!entry || typeof entry !== 'object') continue;
+      const id = entry.id ? String(entry.id) : `entry_${i}`;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+
+      // Slot key based on course, semester, day, slotId, and optional group
+      const grpKey = entry.groupId || entry.groupName ? String(entry.groupId || entry.groupName).trim().toLowerCase() : '__whole__';
+      const slotKey = `${entry.courseId}_${entry.semesterName}_${entry.day}_${entry.slotId}_${grpKey}`;
+
+      if (!seenSlots.has(slotKey)) {
+        seenSlots.set(slotKey, { ...entry, id });
+      }
+    }
+
+    return Array.from(seenSlots.values()).reverse();
+  }
+
   // Helper function to persist state with immediate response, disk storage & non-blocking cloud backup
   async function persistStateAcrossLayers(incomingPartial: any) {
     const existingState = cachedState || {};
@@ -142,16 +168,22 @@ async function startServer() {
     // If incomingPartial doesn't contain timetableEntries, preserve existing database timetable entries
     if (incomingPartial.timetableEntries === undefined && existingState.timetableEntries) {
       incomingPartial.timetableEntries = existingState.timetableEntries;
-    } else if (incomingPartial.timetableEntries && existingState.timetableEntries) {
-      // Allow intentional timetable overwriting and modifications!
-      // Only protect against accidental overwrite by the 3 uninitialized mock seeds if existing state has real user entries:
+    } else if (incomingPartial.timetableEntries && Array.isArray(incomingPartial.timetableEntries)) {
+      // Administrator explicitly allowed overwriting, or regular user modifications:
+      const allowOverwrite = incomingPartial.allowOverwrite ?? true;
       const incomingEntries = incomingPartial.timetableEntries;
-      if (incomingEntries.length <= 3 && existingState.timetableEntries.length > 3 && !incomingPartial.allowOverwrite) {
+
+      if (!allowOverwrite && incomingEntries.length <= 3 && existingState.timetableEntries && existingState.timetableEntries.length > 3) {
         const isDefaultSeed = incomingEntries.every((e: any) => ['cs-101-1', 'ee-201-1', 'me-301-1'].includes(e.id));
         if (isDefaultSeed) {
           console.log("[Protection] Prevented default uninitialized seed from overwriting scheduled timetable database entries.");
           incomingPartial.timetableEntries = existingState.timetableEntries;
+        } else {
+          incomingPartial.timetableEntries = deduplicateTimetableEntries(incomingEntries);
         }
+      } else {
+        // Authoritative update / overwrite: deduplicate to ensure clean, singular records per slot
+        incomingPartial.timetableEntries = deduplicateTimetableEntries(incomingEntries);
       }
     }
 
@@ -179,6 +211,8 @@ async function startServer() {
 
     // 3. Instant Real-time broadcast to all connected browsers / tabs across the web
     broadcastRealtimeState("state_updated", {
+      users: cleanState.users,
+      demoAccountsPurged: cleanState.demoAccountsPurged,
       timetableEntries: cleanState.timetableEntries,
       units: cleanState.units,
       courseGroups: cleanState.courseGroups,
@@ -252,19 +286,82 @@ async function startServer() {
   // Dedicated instant save endpoint for Timetable changes
   app.post("/api/save-timetable", async (req, res) => {
     try {
-      const { timetableEntries, units, courseGroups } = req.body || {};
+      const { timetableEntries, units, courseGroups, allowOverwrite = true } = req.body || {};
       if (!timetableEntries && !units && !courseGroups) {
         return res.status(400).json({ success: false, error: "No timetable data provided" });
       }
       const result = await persistStateAcrossLayers({
         ...(timetableEntries ? { timetableEntries } : {}),
         ...(units ? { units } : {}),
-        ...(courseGroups ? { courseGroups } : {})
+        ...(courseGroups ? { courseGroups } : {}),
+        allowOverwrite: allowOverwrite ?? true
       });
       res.json(result);
     } catch (err: any) {
       console.error("Failed to save timetable directly:", err);
       res.status(500).json({ success: false, error: err?.message || "Failed to save timetable" });
+    }
+  });
+
+  // Dedicated endpoint for Administrator to permanently purge all demonstration accounts
+  app.post("/api/purge-demo-accounts", async (req, res) => {
+    try {
+      const demoUsernames = [
+        'principal', 'deputy', 'qa', 'assessor', 'registrar', 'finance', 'exams',
+        'hod', 'hod_be', 'trainer', 'trainer_be', 'manager', 'review',
+        'ktvc/dict/2026j/001', 'ktvc/dcs/2026j/002', 'trainee'
+      ];
+      const demoUserIds = [
+        'user_principal', 'user_deputy', 'user_qa', 'user_assessor', 'user_registrar',
+        'user_finance', 'user_exams', 'user_hod', 'user_hod_be', 'user_trainer',
+        'user_trainer_be', 'user_manager', 'user_review', 'user_student1',
+        'user_student2', 'user_trainee'
+      ];
+
+      const currentUsers: any[] = Array.isArray(cachedState?.users) ? cachedState.users : [];
+      const remainingUsers = currentUsers.filter((u: any) => {
+        if (!u) return false;
+        if (u.role === 'admin' || (u.username && u.username.toLowerCase() === 'admin') || u.id === 'user_admin') {
+          return true; // Always protect admin
+        }
+        if (u.isDemo === true) return false;
+        if (u.id && demoUserIds.includes(u.id)) return false;
+        if (u.username && demoUsernames.includes(u.username.toLowerCase())) return false;
+        return true;
+      });
+
+      // Ensure super admin exists
+      if (!remainingUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+        remainingUsers.unshift({
+          id: 'user_admin',
+          username: 'admin',
+          password: 'admin123',
+          role: 'admin',
+          name: 'Super Admin',
+          isActive: true,
+          isDefault: true,
+          isDemo: false
+        });
+      }
+
+      const purgedCount = currentUsers.length - remainingUsers.length;
+
+      const result = await persistStateAcrossLayers({
+        users: remainingUsers,
+        demoAccountsPurged: true,
+        allowOverwrite: true
+      });
+
+      res.json({
+        success: true,
+        purgedCount,
+        remainingCount: remainingUsers.length,
+        users: remainingUsers,
+        result
+      });
+    } catch (err: any) {
+      console.error("Failed to purge demo accounts:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to purge demo accounts" });
     }
   });
 
@@ -358,11 +455,35 @@ async function startServer() {
         try {
           console.log("[Server Boot] Hydrating state from Cloud Firestore...");
           const masterDocRef = doc(db, "app_state", "timetable_state");
-          const docSnap = await getDoc(masterDocRef);
-          if (docSnap.exists() && docSnap.data()?.data) {
-            const cloudData = docSnap.data().data;
-            fs.writeFileSync(stateFilePath, JSON.stringify(cloudData, null, 2), 'utf-8');
-            console.log(`[Server Boot] Successfully hydrated ${cloudData.timetableEntries?.length || 0} timetable entries from Cloud Firestore.`);
+          const timetableDocRef = doc(db, "app_state", "timetable");
+          
+          const [masterSnap, timetableSnap] = await Promise.all([
+            getDoc(masterDocRef).catch(() => null),
+            getDoc(timetableDocRef).catch(() => null)
+          ]);
+
+          let hydrated = cachedState || {};
+          let shouldPersist = false;
+
+          if (masterSnap && masterSnap.exists() && masterSnap.data()?.data) {
+            hydrated = { ...hydrated, ...masterSnap.data().data };
+            shouldPersist = true;
+          }
+
+          if (timetableSnap && timetableSnap.exists()) {
+            const tData = timetableSnap.data();
+            if (tData?.timetableEntries && Array.isArray(tData.timetableEntries)) {
+              hydrated.timetableEntries = deduplicateTimetableEntries(tData.timetableEntries);
+              if (tData.units) hydrated.units = tData.units;
+              if (tData.courseGroups) hydrated.courseGroups = tData.courseGroups;
+              shouldPersist = true;
+            }
+          }
+
+          if (shouldPersist) {
+            cachedState = hydrated;
+            fs.writeFileSync(stateFilePath, JSON.stringify(hydrated, null, 2), 'utf-8');
+            console.log(`[Server Boot] Successfully hydrated state with ${hydrated.timetableEntries?.length || 0} timetable entries from Cloud Firestore.`);
           }
         } catch (err: any) {
           console.warn("[Server Boot] Cloud hydration notice:", err?.message);

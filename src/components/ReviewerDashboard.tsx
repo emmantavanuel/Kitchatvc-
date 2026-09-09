@@ -30,7 +30,8 @@ import {
   ChevronRight,
   Download,
   AlertTriangle,
-  UserCheck
+  UserCheck,
+  Award
 } from 'lucide-react';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 import UserProfileModal from './UserProfileModal';
@@ -55,6 +56,7 @@ interface ReviewerDashboardProps {
   academicSetting: AcademicSetting;
   onUpdateUsers?: (users: User[]) => void;
   onLogout: () => void;
+  onNavigateToPoe?: () => void;
 }
 
 type ReviewTab = 'master_grid' | 'departmental' | 'trainers' | 'audit_overview';
@@ -71,7 +73,8 @@ export default function ReviewerDashboard({
   trainerPreferences,
   academicSetting,
   onUpdateUsers,
-  onLogout
+  onLogout,
+  onNavigateToPoe
 }: ReviewerDashboardProps) {
   const [activeTab, setActiveTab] = useState<ReviewTab>('master_grid');
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -717,6 +720,18 @@ export default function ReviewerDashboard({
             <ShieldCheck className="w-4 h-4" />
             <span>Quality Audit Overview</span>
           </button>
+
+          {onNavigateToPoe && (
+            <button
+              onClick={onNavigateToPoe}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100/90 shadow-3xs"
+              title="Open TVET Portfolio of Evidence (PoE) & CDACC Verification Suite"
+            >
+              <Award className="w-4 h-4 text-amber-600" />
+              <span>TVET PoE Portal</span>
+              <span className="text-[9px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-extrabold">CDACC</span>
+            </button>
+          )}
         </nav>
 
         <div className="flex items-center gap-2 shrink-0">

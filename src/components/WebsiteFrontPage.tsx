@@ -20,6 +20,7 @@ import { compressImageFile } from '../lib/imageUtils';
 
 interface WebsiteFrontPageProps {
   onNavigateToPortal: () => void;
+  onNavigateToPoe?: () => void;
   applications: AdmissionApplication[];
   onAddApplication: (app: AdmissionApplication) => void;
   erpUsers?: User[];
@@ -31,6 +32,7 @@ interface WebsiteFrontPageProps {
 
 export default function WebsiteFrontPage({ 
   onNavigateToPortal, 
+  onNavigateToPoe,
   applications, 
   onAddApplication,
   erpUsers = [],
@@ -393,9 +395,20 @@ export default function WebsiteFrontPage({
                 <Phone className="w-3.5 h-3.5 text-[#BA8D5C]" />
                 <span>CONTACT US</span>
               </button>
+
+              {/* TVET POE (Portfolio of Evidence) */}
+              <button
+                onClick={onNavigateToPoe || onNavigateToPortal}
+                className="px-3.5 py-2.5 rounded-lg transition-colors flex items-center gap-1.5 text-[#8F6335] hover:text-[#734c24] hover:bg-[#FAF3EA] font-extrabold cursor-pointer"
+                title="TVET Portfolio of Evidence (PoE) & CDACC Assessment Portal"
+              >
+                <Award className="w-4 h-4 text-[#C29563]" />
+                <span>TVET POE</span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] bg-[#C29563]/20 text-[#8F6335] font-bold">CDACC</span>
+              </button>
             </div>
 
-            {/* Right Action Menus (CHECK ADMISSION, PORTAL & TRAINEE REGISTRATION) */}
+            {/* Right Action Menus (CHECK ADMISSION, POE PORTAL, PORTAL & TRAINEE REGISTRATION) */}
             <div className="flex items-center gap-2 py-2">
               <button
                 onClick={() => setIsStatusOpen(true)}
@@ -403,6 +416,16 @@ export default function WebsiteFrontPage({
               >
                 <Search className="w-3.5 h-3.5 text-[#BA8D5C]" />
                 <span>Check Admission</span>
+              </button>
+
+              {/* TVET PoE Portal Button */}
+              <button
+                onClick={onNavigateToPoe || onNavigateToPortal}
+                className="hidden xl:flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-[#6D421B] bg-[#FAF3EA] hover:bg-[#F3E8DB] border border-[#DFCBB5] rounded-lg transition-all shadow-3xs cursor-pointer active:scale-95"
+                title="Access TVET Portfolio of Evidence (PoE) & CDACC Assessments"
+              >
+                <Award className="w-3.5 h-3.5 text-[#BA8D5C]" />
+                <span>PoE PORTAL</span>
               </button>
 
               {/* Portal Button - Directs to Login page of ERP Suite */}
@@ -507,6 +530,20 @@ export default function WebsiteFrontPage({
                 className="block w-full text-left py-2 px-3 rounded bg-[#FAF3EA] text-[#54381C] font-bold"
               >
                 🔍 Check Trainee Admission Status
+              </button>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  if (onNavigateToPoe) onNavigateToPoe();
+                  else onNavigateToPortal();
+                }}
+                className="flex items-center justify-between w-full text-left py-2.5 px-3 rounded bg-amber-50 border border-amber-200 text-amber-900 font-black cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-600" />
+                  <span>TVET Portfolio of Evidence (PoE)</span>
+                </span>
+                <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-extrabold">CDACC</span>
               </button>
             </div>
           )}

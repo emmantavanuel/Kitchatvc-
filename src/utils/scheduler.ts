@@ -1,4 +1,4 @@
-import { TimetableEntry, TrainerSlotPreference, User, Classroom, Course, Unit, SchedulingConflict, DayOfWeek } from '../types';
+import { TimetableEntry, TrainerSlotPreference, User, Classroom, Course, Unit, SchedulingConflict, DayOfWeek, CourseGroup } from '../types';
 
 /**
  * Global Conflict Detection System
@@ -527,15 +527,15 @@ export function buildCombinedCohorts(
   allUnits: Unit[],
   days: DayOfWeek[],
   slots: { id: number; label: string }[],
-  departmentFilter?: string
+  departmentFilter?: string,
+  allCourseGroups?: CourseGroup[]
 ): CombinedCohort[] {
-  const singleCohortsMap = new Map<string, {
-    courseId: string;
-    semesterName: string;
+  // 1. Group all scheduled entries by course and normalized module
+  const courseModuleMap = new Map<string, {
     course: Course;
+    semesterName: string;
     departmentId: string;
-    groupId?: string;
-    groupName?: string;
+    entries: TimetableEntry[];
   }>();
 
   entries.forEach(e => {
@@ -552,17 +552,74 @@ export function buildCombinedCohorts(
       };
     }
 
-    const grpKey = e.groupId || e.groupName || '';
     const normSem = formatSemesterToModule(e.semesterName || 'Module 1');
-    const key = `${course.id}___${normSem}___${grpKey}`;
-    if (!singleCohortsMap.has(key)) {
+    const cmKey = `${course.id}___${normSem}`;
+    if (!courseModuleMap.has(cmKey)) {
+      courseModuleMap.set(cmKey, {
+        course,
+        semesterName: normSem,
+        departmentId: entryDept,
+        entries: []
+      });
+    }
+    courseModuleMap.get(cmKey)!.entries.push(e);
+  });
+
+  // 2. For each course module, if active groups are scheduled (e.g. Group A, Group B, Group C),
+  // separate them into distinct cohorts for printing and master grid views.
+  const singleCohortsMap = new Map<string, {
+    courseId: string;
+    semesterName: string;
+    course: Course;
+    departmentId: string;
+    groupId?: string;
+    groupName?: string;
+  }>();
+
+  courseModuleMap.forEach(({ course, semesterName, departmentId, entries: modEntries }) => {
+    // Identify distinct scheduled groups for this course and module
+    const scheduledGroupsMap = new Map<string, { id?: string; name: string }>();
+    modEntries.forEach(e => {
+      let gName = e.groupName;
+      if (!gName && e.groupId && allCourseGroups) {
+        const cg = allCourseGroups.find(g => g.id === e.groupId);
+        if (cg) gName = cg.name;
+      }
+      if (!gName && e.groupId) {
+        gName = `Group ${e.groupId}`;
+      }
+      if (gName && gName.trim()) {
+        const key = gName.trim().toLowerCase();
+        if (!scheduledGroupsMap.has(key)) {
+          scheduledGroupsMap.set(key, { id: e.groupId, name: gName.trim() });
+        }
+      }
+    });
+
+    if (scheduledGroupsMap.size > 0) {
+      // Multiple active groups scheduled in this module: separate them into distinct cohorts
+      const sortedGroups = Array.from(scheduledGroupsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+      sortedGroups.forEach(grp => {
+        const key = `${course.id}___${semesterName}___${grp.name.toLowerCase()}`;
+        singleCohortsMap.set(key, {
+          courseId: course.id,
+          semesterName,
+          course,
+          departmentId,
+          groupId: grp.id,
+          groupName: grp.name
+        });
+      });
+    } else {
+      // Standard whole-cohort schedule (no module groups scheduled)
+      const key = `${course.id}___${semesterName}___all`;
       singleCohortsMap.set(key, {
         courseId: course.id,
-        semesterName: e.semesterName || 'Module 1',
+        semesterName,
         course,
-        departmentId: entryDept,
-        groupId: e.groupId,
-        groupName: e.groupName
+        departmentId,
+        groupId: undefined,
+        groupName: undefined
       });
     }
   });
@@ -585,11 +642,26 @@ export function buildCombinedCohorts(
   deptSemGroups.forEach(cohortList => {
     const cohortSignatures = cohortList.map(sc => {
       const normScSem = formatSemesterToModule(sc.semesterName).toLowerCase();
-      const cohortEntries = entries.filter(
-        e => (e.courseId === sc.courseId || (sc.course?.code && (e.courseId || '').toLowerCase() === sc.course.code.toLowerCase())) && 
-             formatSemesterToModule(e.semesterName || '').toLowerCase() === normScSem &&
-             (sc.groupId ? (e.groupId === sc.groupId || e.groupName === sc.groupName) : (!e.groupId && !e.groupName))
-      );
+      const cohortEntries = entries.filter(e => {
+        const courseMatch = e.courseId === sc.courseId || (sc.course?.code && (e.courseId || '').toLowerCase() === sc.course.code.toLowerCase());
+        const semMatch = formatSemesterToModule(e.semesterName || '').toLowerCase() === normScSem;
+        if (!courseMatch || !semMatch) return false;
+
+        if (sc.groupId || sc.groupName) {
+          if (!e.groupId && !e.groupName) return true; // Common lesson across groups
+          if (sc.groupId && e.groupId && sc.groupId === e.groupId) return true;
+          let eName = e.groupName;
+          if (!eName && e.groupId && allCourseGroups) {
+            eName = allCourseGroups.find(g => g.id === e.groupId)?.name;
+          }
+          let scName = sc.groupName;
+          if (!scName && sc.groupId && allCourseGroups) {
+            scName = allCourseGroups.find(g => g.id === sc.groupId)?.name;
+          }
+          return Boolean(scName && eName && scName.trim().toLowerCase() === eName.trim().toLowerCase());
+        }
+        return !e.groupId && !e.groupName;
+      });
       const slotMap = new Map<string, { unitCode: string; trainerId: string; roomId: string; rawEntry: TimetableEntry }>();
 
       cohortEntries.forEach(e => {
@@ -742,7 +814,8 @@ export function getMatchingEntriesForCohortCell(
   cohort: CombinedCohort,
   day: string,
   slotId: number,
-  allUnits?: Unit[]
+  allUnits?: Unit[],
+  allCourseGroups?: CourseGroup[]
 ): TimetableEntry[] {
   const normDay = (day || '').trim().toLowerCase();
   const normSlot = Number(slotId);
@@ -778,9 +851,18 @@ export function getMatchingEntriesForCohortCell(
       // Cohort row is for a specific group:
       // Show entries scheduled for this group, OR common entries scheduled for the cohort without specific group
       if (!e.groupId && !e.groupName) return true;
-      const matchesId = cohort.groupId && e.groupId && cohort.groupId === e.groupId;
-      const matchesName = cohort.groupName && e.groupName && cohort.groupName.trim().toLowerCase() === e.groupName.trim().toLowerCase();
-      return Boolean(matchesId || matchesName);
+      if (cohort.groupId && e.groupId && cohort.groupId === e.groupId) return true;
+
+      let eName = e.groupName;
+      if (!eName && e.groupId && allCourseGroups) {
+        eName = allCourseGroups.find(g => g.id === e.groupId)?.name;
+      }
+      let cName = cohort.groupName;
+      if (!cName && cohort.groupId && allCourseGroups) {
+        cName = allCourseGroups.find(g => g.id === cohort.groupId)?.name;
+      }
+
+      return Boolean(cName && eName && cName.trim().toLowerCase() === eName.trim().toLowerCase());
     } else {
       // Cohort has no specific group breakdown: include all entries for this course/semester
       return true;

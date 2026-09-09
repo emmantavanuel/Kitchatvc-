@@ -9,7 +9,8 @@ import {
 } from './types';
 import { 
   INITIAL_USERS, INITIAL_DEPARTMENTS, INITIAL_COURSES, INITIAL_CLASSROOMS, 
-  INITIAL_UNITS, INITIAL_TIMETABLE_ENTRIES, INITIAL_TRAINER_PREFERENCES, DEFAULT_ACADEMIC_SETTING 
+  INITIAL_UNITS, INITIAL_TIMETABLE_ENTRIES, INITIAL_TRAINER_PREFERENCES, DEFAULT_ACADEMIC_SETTING,
+  isDemoAccount 
 } from './data/seedData';
 import {
   INITIAL_STUDENTS, INITIAL_FEE_STRUCTURES, INITIAL_INVOICES, INITIAL_PAYMENTS,
@@ -31,7 +32,10 @@ import {
   loadApplicationState, 
   saveApplicationState, 
   saveTimetableDirectly, 
+  deduplicateTimetableEntries,
   saveWebsiteConfigDirectly, 
+  savePoeDirectly,
+  purgeDemoAccountsDirectly,
   testConnection, 
   subscribeToRealtimeUpdates, 
   broadcastLocalUpdate 
@@ -42,6 +46,7 @@ const STORAGE_PREFIX = 'kitcha_timetable_';
 const LAST_UPDATED_KEY = `${STORAGE_PREFIX}last_updated`;
 const KEYS = {
   USERS: `${STORAGE_PREFIX}users`,
+  DEMO_ACCOUNTS_PURGED: `${STORAGE_PREFIX}demo_accounts_purged`,
   DEPARTMENTS: `${STORAGE_PREFIX}departments`,
   COURSES: `${STORAGE_PREFIX}courses`,
   CLASSROOMS: `${STORAGE_PREFIX}classrooms`,
@@ -410,15 +415,18 @@ export default function App() {
           
           let resolvedUsers: User[] = users;
           if (sUsers) {
-            let mappedUsers = sUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true } : u);
-            INITIAL_USERS.forEach(seedUser => {
-              if (!mappedUsers.some((u: any) => u.username.toLowerCase() === seedUser.username.toLowerCase())) {
-                mappedUsers.push(seedUser);
-              }
-            });
+            let mappedUsers = sUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : u);
+            if (!mappedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+              mappedUsers.unshift(INITIAL_USERS[0]);
+            }
+            const isPurged = Boolean(loadedState.demoAccountsPurged || localStorage.getItem(KEYS.DEMO_ACCOUNTS_PURGED) === 'true');
+            if (isPurged) {
+              mappedUsers = mappedUsers.filter((u: any) => !isDemoAccount(u));
+              safeSetItem(KEYS.DEMO_ACCOUNTS_PURGED, 'true');
+            }
             resolvedUsers = mappedUsers;
             setUsers(mappedUsers);
-            localStorage.setItem(KEYS.USERS, JSON.stringify(mappedUsers));
+            safeSetItem(KEYS.USERS, JSON.stringify(mappedUsers));
           }
           if (sDepts) {
             setDepartments(sDepts);
@@ -559,13 +567,15 @@ export default function App() {
           const storedPoeNotifs = localStorage.getItem(KEYS.POE_NOTIFICATIONS);
           const storedPoeRubrics = localStorage.getItem(KEYS.POE_RUBRICS);
 
-          const rawLoadedUsers = storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS;
-          let loadedUsers = rawLoadedUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true } : u);
-          INITIAL_USERS.forEach(seedUser => {
-            if (!loadedUsers.some((u: any) => u.username.toLowerCase() === seedUser.username.toLowerCase())) {
-              loadedUsers.push(seedUser);
-            }
-          });
+          const isPurged = localStorage.getItem(KEYS.DEMO_ACCOUNTS_PURGED) === 'true';
+          const rawLoadedUsers = storedUsers ? JSON.parse(storedUsers) : (isPurged ? [INITIAL_USERS[0]] : INITIAL_USERS);
+          let loadedUsers = rawLoadedUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : u);
+          if (!loadedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+            loadedUsers.unshift(INITIAL_USERS[0]);
+          }
+          if (isPurged) {
+            loadedUsers = loadedUsers.filter((u: any) => !isDemoAccount(u));
+          }
           const loadedDepts = storedDepts ? JSON.parse(storedDepts) : INITIAL_DEPARTMENTS;
           const loadedCourses = storedCourses ? JSON.parse(storedCourses) : INITIAL_COURSES;
           const loadedRooms = storedRooms ? JSON.parse(storedRooms) : INITIAL_CLASSROOMS;
@@ -703,7 +713,11 @@ export default function App() {
           const storedExams = localStorage.getItem(KEYS.EXAM_MARKS);
           const storedCurrentUser = localStorage.getItem(KEYS.CURRENT_USER);
 
-          const fallbackUsers = (storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS).map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true } : u);
+          const isPurged = localStorage.getItem(KEYS.DEMO_ACCOUNTS_PURGED) === 'true';
+          let fallbackUsers = (storedUsers ? JSON.parse(storedUsers) : (isPurged ? [INITIAL_USERS[0]] : INITIAL_USERS)).map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : u);
+          if (isPurged) {
+            fallbackUsers = fallbackUsers.filter((u: any) => !isDemoAccount(u));
+          }
           setUsers(fallbackUsers);
           setDepartments(storedDepts ? JSON.parse(storedDepts) : INITIAL_DEPARTMENTS);
           setCourses(storedCourses ? JSON.parse(storedCourses) : INITIAL_COURSES);
@@ -723,7 +737,7 @@ export default function App() {
 
           if (storedCurrentUser) {
             const parsedUser = JSON.parse(storedCurrentUser);
-            const verifiedUser = INITIAL_USERS.concat(storedUsers ? JSON.parse(storedUsers) : []).find(u => u.id === parsedUser.id);
+            const verifiedUser = fallbackUsers.find((u: any) => u.id === parsedUser.id);
             if (verifiedUser && verifiedUser.isActive) {
               setCurrentUser(verifiedUser);
             } else {
@@ -829,6 +843,20 @@ export default function App() {
           safeSetItem(KEYS.POE_NOTIFICATIONS, incomingJson);
         }
       }
+
+      // 7. Users directory & demo accounts purge real-time synchronization
+      if (update.users && Array.isArray(update.users)) {
+        const incomingJson = JSON.stringify(update.users);
+        const currentJson = JSON.stringify(stateRef.current.users);
+        if (incomingJson !== currentJson) {
+          setUsers(update.users);
+          stateRef.current.users = update.users;
+          safeSetItem(KEYS.USERS, incomingJson);
+          if (update.demoAccountsPurged) {
+            safeSetItem(KEYS.DEMO_ACCOUNTS_PURGED, 'true');
+          }
+        }
+      }
     });
 
     return () => {
@@ -867,6 +895,40 @@ export default function App() {
       }
     }
     triggerAutoSave({ users: updated });
+  };
+
+  const handlePurgeDemoAccounts = async () => {
+    const demoAccounts = users.filter(u => isDemoAccount(u));
+    const demoCount = demoAccounts.length;
+    if (demoCount === 0) return 0;
+
+    const remainingUsers = users.filter(u => !isDemoAccount(u));
+    if (!remainingUsers.some(u => u.role === 'admin' || u.username.toLowerCase() === 'admin')) {
+      const adminAcc = users.find(u => u.role === 'admin') || INITIAL_USERS[0];
+      remainingUsers.unshift(adminAcc);
+    }
+
+    safeSetItem(KEYS.DEMO_ACCOUNTS_PURGED, 'true');
+    safeSetItem(KEYS.USERS, JSON.stringify(remainingUsers));
+
+    setUsers(remainingUsers);
+    stateRef.current.users = remainingUsers;
+    stateRef.current.demoAccountsPurged = true;
+
+    // Call server purge endpoint & immediate DB sync
+    try {
+      await purgeDemoAccountsDirectly();
+    } catch (e) {
+      console.warn('Purge demo accounts endpoint notice:', e);
+    }
+
+    await saveStateToDatabaseImmediately({
+      users: remainingUsers,
+      demoAccountsPurged: true,
+      allowOverwrite: true
+    });
+
+    return demoCount;
   };
 
   const updateDepartmentsState = (updated: Department[]) => {
@@ -921,19 +983,20 @@ export default function App() {
   };
 
   const updateTimetableEntriesState = (updated: TimetableEntry[]) => {
-    setTimetableEntries(updated);
-    stateRef.current.timetableEntries = updated;
-    safeSetItem(KEYS.TIMETABLE, JSON.stringify(updated));
+    const deduplicated = deduplicateTimetableEntries(updated);
+    setTimetableEntries(deduplicated);
+    stateRef.current.timetableEntries = deduplicated;
+    safeSetItem(KEYS.TIMETABLE, JSON.stringify(deduplicated));
     // Immediately broadcast to other open tabs on this machine (<1ms)
     broadcastLocalUpdate('timetable', {
-      timetableEntries: updated,
+      timetableEntries: deduplicated,
       units: stateRef.current.units,
       courseGroups: stateRef.current.courseGroups
     });
     // Dedicated instant save for timetable to ensure zero latency in cloud
-    saveTimetableDirectly(updated, stateRef.current.units, stateRef.current.courseGroups).catch(() => {});
+    saveTimetableDirectly(deduplicated, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
     // Immediately synchronize full state to Cloud Firestore & server
-    triggerAutoSave({ timetableEntries: updated }, true);
+    triggerAutoSave({ timetableEntries: deduplicated, allowOverwrite: true }, true);
   };
 
   const updateTrainerPreferencesState = (updated: TrainerSlotPreference[]) => {
@@ -1016,10 +1079,63 @@ export default function App() {
     triggerAutoSave({ websiteConfig: updated }, true);
   };
 
+  // TVET Portfolio of Evidence (PoE) State Handlers & Cloud Sync
+  const updatePoeDocumentsState = (updated: PoeDocument[]) => {
+    setPoeDocuments(updated);
+    stateRef.current.poeDocuments = updated;
+    safeSetItem(KEYS.POE_DOCUMENTS, JSON.stringify(updated));
+    broadcastLocalUpdate('poe', { poeDocuments: updated });
+    savePoeDirectly(updated, poeNotifications).catch(() => {});
+    triggerAutoSave({ poeDocuments: updated }, true);
+  };
+
+  const updatePoeNotificationsState = (updated: PoeNotification[]) => {
+    setPoeNotifications(updated);
+    stateRef.current.poeNotifications = updated;
+    safeSetItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(updated));
+    broadcastLocalUpdate('poe', { poeNotifications: updated });
+    savePoeDirectly(poeDocuments, updated).catch(() => {});
+    triggerAutoSave({ poeNotifications: updated }, true);
+  };
+
+  const updatePoeRubricsState = (updated: PoeRubric[]) => {
+    setPoeRubrics(updated);
+    stateRef.current.poeRubrics = updated;
+    safeSetItem(KEYS.POE_RUBRICS, JSON.stringify(updated));
+    triggerAutoSave({ poeRubrics: updated }, true);
+  };
+
+  const handleSavePoeDocument = (newDoc: PoeDocument) => {
+    const updated = [newDoc, ...poeDocuments.filter(d => d.id !== newDoc.id)];
+    updatePoeDocumentsState(updated);
+  };
+
+  const handleUpdatePoeDocument = (updatedDoc: PoeDocument) => {
+    const updated = poeDocuments.map(d => d.id === updatedDoc.id ? updatedDoc : d);
+    updatePoeDocumentsState(updated);
+  };
+
+  const handleDeletePoeDocument = (docId: string) => {
+    const updated = poeDocuments.filter(d => d.id !== docId);
+    updatePoeDocumentsState(updated);
+  };
+
+  const handleMarkPoeNotificationRead = (id: string) => {
+    const updated = poeNotifications.map(n => n.id === id ? { ...n, isRead: true } : n);
+    updatePoeNotificationsState(updated);
+  };
+
+  const handleMarkAllPoeNotificationsRead = () => {
+    const updated = poeNotifications.map(n => ({ ...n, isRead: true }));
+    updatePoeNotificationsState(updated);
+  };
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(user));
+    if (['quality_assurance', 'assessor', 'trainee', 'student'].includes(user.role)) {
+      setActiveWorkspace('portfolio');
+    }
   };
 
   const handleLogout = () => {
@@ -1156,6 +1272,10 @@ export default function App() {
         )}
         <WebsiteFrontPage 
           onNavigateToPortal={() => setCurrentView('portal')}
+          onNavigateToPoe={() => {
+            setCurrentView('portal');
+            setActiveWorkspace('portfolio');
+          }}
           applications={admissionApplications}
           onAddApplication={(newApp) => updateAdmissionApplicationsState([newApp, ...admissionApplications])}
           erpUsers={users}
@@ -1185,6 +1305,45 @@ export default function App() {
 
   // Helper to render the active workspace content
   const renderWorkspaceContent = () => {
+    // TVET Portfolio of Evidence (PoE) & CDACC Assessment Workspace
+    if (activeWorkspace === 'portfolio') {
+      return (
+        <PoeDashboard
+          currentUser={currentUser}
+          allUsers={users}
+          onSwitchUser={(user) => setCurrentUser(user)}
+          departments={departments}
+          courses={courses}
+          units={units}
+          academicSetting={academicSetting}
+          documents={poeDocuments}
+          onSaveDocument={(doc) => {
+            const updated = [doc, ...poeDocuments.filter(d => d.id !== doc.id)];
+            updatePoeDocumentsState(updated);
+          }}
+          onUpdateDocument={(doc) => {
+            const updated = poeDocuments.map(d => d.id === doc.id ? doc : d);
+            updatePoeDocumentsState(updated);
+          }}
+          onDeleteDocument={(docId) => {
+            const updated = poeDocuments.filter(d => d.id !== docId);
+            updatePoeDocumentsState(updated);
+          }}
+          notifications={poeNotifications}
+          onMarkNotificationRead={(id) => {
+            const updated = poeNotifications.map(n => n.id === id ? { ...n, isRead: true } : n);
+            updatePoeNotificationsState(updated);
+          }}
+          onMarkAllNotificationsRead={() => {
+            const updated = poeNotifications.map(n => ({ ...n, isRead: true }));
+            updatePoeNotificationsState(updated);
+          }}
+          rubrics={poeRubrics}
+          onBackToMain={() => setActiveWorkspace('timetable')}
+        />
+      );
+    }
+
     if (activeWorkspace === 'finance') {
       return (
         <FeeDashboard
@@ -1244,6 +1403,8 @@ export default function App() {
           fullState={getFullSystemStateBundle()}
           websiteConfig={websiteConfig}
           onUpdateWebsiteConfig={updateWebsiteConfigState}
+          onNavigateToPoe={() => setActiveWorkspace('portfolio')}
+          onPurgeDemoAccounts={handlePurgeDemoAccounts}
         />
       );
     }
@@ -1268,6 +1429,7 @@ export default function App() {
           onUpdateCourses={updateCoursesState}
           onUpdateUsers={updateUsersState}
           onLogout={handleLogout}
+          onNavigateToPoe={() => setActiveWorkspace('portfolio')}
         />
       );
     }
@@ -1288,11 +1450,12 @@ export default function App() {
           onUpdateTrainerPreferences={updateTrainerPreferencesState}
           onUpdateUsers={updateUsersState}
           onLogout={handleLogout}
+          onNavigateToPoe={() => setActiveWorkspace('portfolio')}
         />
       );
     }
 
-    if (currentUser.role === 'manager' || currentUser.role === 'review' || (currentUser.role as string) === 'reviewer') {
+    if (currentUser.role === 'manager' || currentUser.role === 'review' || (currentUser.role as string) === 'reviewer' || currentUser.role === 'quality_assurance' || currentUser.role === 'assessor') {
       return (
         <ReviewerDashboard
           currentUser={currentUser}
@@ -1306,6 +1469,39 @@ export default function App() {
           trainerPreferences={trainerPreferences}
           academicSetting={academicSetting}
           onUpdateUsers={updateUsersState}
+          onLogout={handleLogout}
+          onNavigateToPoe={() => setActiveWorkspace('portfolio')}
+        />
+      );
+    }
+
+    if (currentUser.role === 'student' || currentUser.role === 'trainee') {
+      return (
+        <FeeDashboard
+          currentUser={currentUser}
+          users={users}
+          departments={departments}
+          courses={courses}
+          units={units}
+          courseGroups={courseGroups}
+          students={students}
+          feeStructures={feeStructures}
+          invoices={invoices}
+          payments={payments}
+          installmentPlans={installmentPlans}
+          feeAuditLogs={feeAuditLogs}
+          admissionApplications={admissionApplications}
+          examMarks={examMarks}
+          onUpdateStudents={updateStudentsState}
+          onUpdateFeeStructures={updateFeeStructuresState}
+          onUpdateInvoices={updateInvoicesState}
+          onUpdatePayments={updatePaymentsState}
+          onUpdateInstallmentPlans={updateInstallmentPlansState}
+          onUpdateFeeAuditLogs={updateFeeAuditLogsState}
+          onUpdateAdmissionApplications={updateAdmissionApplicationsState}
+          onUpdateExamMarks={updateExamMarksState}
+          onUpdateUsers={updateUsersState}
+          onBackToTimetable={() => setActiveWorkspace('portfolio')}
           onLogout={handleLogout}
         />
       );
@@ -1443,6 +1639,20 @@ export default function App() {
               <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             </button>
 
+            <button
+              onClick={() => setActiveWorkspace('portfolio')}
+              className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold flex items-center gap-1.5 ${
+                activeWorkspace === 'portfolio'
+                  ? 'bg-amber-600 text-white font-bold shadow-xs'
+                  : 'text-amber-800 hover:text-amber-950 hover:bg-amber-100/90 bg-amber-50/70 border border-amber-200'
+              }`}
+              title="Open TVET Portfolio of Evidence (PoE) & CDACC Assessment System"
+            >
+              <Award className="w-3.5 h-3.5" />
+              <span>TVET PoE &amp; CDACC</span>
+              <span className="text-[9px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded font-extrabold">PoE</span>
+            </button>
+
             <span className="text-slate-300 px-1">|</span>
 
             <button
@@ -1484,6 +1694,18 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveWorkspace(activeWorkspace === 'portfolio' ? 'finance' : 'portfolio')}
+              className={`px-3 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold flex items-center gap-1.5 ${
+                activeWorkspace === 'portfolio'
+                  ? 'bg-amber-600 text-white font-bold shadow-xs'
+                  : 'text-amber-900 hover:text-amber-950 hover:bg-amber-100 bg-amber-50 border border-amber-200'
+              }`}
+              title="Switch to TVET Portfolio of Evidence (PoE)"
+            >
+              <Award className="w-3.5 h-3.5 text-amber-500" />
+              <span>{activeWorkspace === 'portfolio' ? 'My Fees & Exams' : 'My TVET PoE'}</span>
+            </button>
             <button
               onClick={() => setCurrentView('website')}
               className="px-2.5 py-1 rounded-xl transition-all cursor-pointer text-xs font-semibold text-slate-700 hover:text-blue-800 hover:bg-slate-200/80 flex items-center gap-1"

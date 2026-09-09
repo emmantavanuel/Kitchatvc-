@@ -78,24 +78,73 @@ export const INITIAL_UNITS: Unit[] = [
   { id: 'unit_plm_math_l3', courseId: 'course_plm_l3', departmentId: 'dept_be', name: 'Basic Technical Mathematics', code: 'MAT101', slotsRequired: 1, module: 'Module 1' }
 ];
 
+export const DEMO_USER_IDS = [
+  'user_principal',
+  'user_deputy',
+  'user_qa',
+  'user_assessor',
+  'user_registrar',
+  'user_finance',
+  'user_exams',
+  'user_hod',
+  'user_hod_be',
+  'user_trainer',
+  'user_trainer_be',
+  'user_manager',
+  'user_review',
+  'user_student1',
+  'user_student2',
+  'user_trainee'
+];
+
+export const DEMO_USERNAMES = [
+  'principal',
+  'deputy',
+  'qa',
+  'assessor',
+  'registrar',
+  'finance',
+  'exams',
+  'hod',
+  'hod_be',
+  'trainer',
+  'trainer_be',
+  'manager',
+  'review',
+  'ktvc/dict/2026j/001',
+  'ktvc/dcs/2026j/002',
+  'trainee'
+];
+
+export function isDemoAccount(user: { id?: string; username?: string; role?: string; isDemo?: boolean }): boolean {
+  if (!user) return false;
+  if (user.role === 'admin' || (user.username && user.username.toLowerCase() === 'admin') || user.id === 'user_admin') {
+    return false;
+  }
+  if (user.isDemo === true) return true;
+  if (user.id && DEMO_USER_IDS.includes(user.id)) return true;
+  if (user.username && DEMO_USERNAMES.includes(user.username.toLowerCase())) return true;
+  return false;
+}
+
 export const INITIAL_USERS: User[] = [
-  { id: 'user_admin', username: 'admin', password: 'admin123', role: 'admin', name: 'Super Admin', isActive: true, isDefault: true },
-  { id: 'user_principal', username: 'principal', password: 'password', role: 'principal', name: 'Dr. Charles Kitur (Principal)', isActive: true },
-  { id: 'user_deputy', username: 'deputy', password: 'password', role: 'deputy_academics', name: 'Eng. Justus Ngetich (Deputy Principal Academics)', isActive: true },
-  { id: 'user_qa', username: 'qa', password: 'password', role: 'quality_assurance', name: 'Madam Scholastica Wanjiku (Quality Assurance Officer)', isActive: true },
-  { id: 'user_assessor', username: 'assessor', password: 'password', role: 'assessor', name: 'Mr. Benson Nyabuto (Lead TVET Assessor & Verifier)', isActive: true },
-  { id: 'user_registrar', username: 'registrar', password: 'password', role: 'registrar', name: 'Mrs. Grace Kerubo (Registrar)', isActive: true },
-  { id: 'user_finance', username: 'finance', password: 'password', role: 'finance_officer', name: 'Mr. John Kamau (Finance)', isActive: true },
-  { id: 'user_exams', username: 'exams', password: 'password', role: 'examinations_officer', name: 'Prof. David Koech (Exams Officer)', isActive: true },
-  { id: 'user_hod', username: 'hod', password: 'password', role: 'hod', name: 'Dr. Andrew Rabach (HOD CSIT)', departmentId: 'dept_cs', isActive: true },
-  { id: 'user_hod_be', username: 'hod_be', password: 'password', role: 'hod', name: 'Eng. Faith Bosire (HOD Building & Civil / Plumbing)', departmentId: 'dept_be', isActive: true },
-  { id: 'user_trainer', username: 'trainer', password: 'password', role: 'trainer', name: 'Mr. Evans Kemboi (Trainer)', departmentId: 'dept_cs', isActive: true, pfNumber: 'PF-2024-042' },
-  { id: 'user_trainer_be', username: 'trainer_be', password: 'password', role: 'trainer', name: 'Mr. Dennis Mogaka (Plumbing Trainer)', departmentId: 'dept_be', isActive: true, pfNumber: 'PF-2023-018' },
-  { id: 'user_manager', username: 'manager', password: 'password', role: 'manager', name: 'Academic Manager (Timetable & Verification)', isActive: true },
-  { id: 'user_review', username: 'review', password: 'password', role: 'review', name: 'Academic Review Officer (Timetable Review & Audit)', isActive: true },
-  { id: 'user_student1', username: 'KTVC/DICT/2026J/001', password: 'password', role: 'student', name: 'Emmanuel Omondi (Trainee)', isActive: true, code: 'KTVC/DICT/2026J/001' },
-  { id: 'user_student2', username: 'KTVC/DCS/2026J/002', password: 'password', role: 'student', name: 'Faith Chepkoech (Trainee)', isActive: true, code: 'KTVC/DCS/2026J/002' },
-  { id: 'user_trainee', username: 'trainee', password: 'password', role: 'trainee', name: 'Brian Kiprop (Electrical Trainee)', isActive: true, code: 'KTVC/CEI/2026J/015' }
+  { id: 'user_admin', username: 'admin', password: 'admin123', role: 'admin', name: 'Super Admin', isActive: true, isDefault: true, isDemo: false },
+  { id: 'user_principal', username: 'principal', password: 'password', role: 'principal', name: 'Dr. Charles Kitur (Principal)', isActive: true, isDemo: true },
+  { id: 'user_deputy', username: 'deputy', password: 'password', role: 'deputy_academics', name: 'Eng. Justus Ngetich (Deputy Principal Academics)', isActive: true, isDemo: true },
+  { id: 'user_qa', username: 'qa', password: 'password', role: 'quality_assurance', name: 'Madam Scholastica Wanjiku (Quality Assurance Officer)', isActive: true, isDemo: true },
+  { id: 'user_assessor', username: 'assessor', password: 'password', role: 'assessor', name: 'Mr. Benson Nyabuto (Lead TVET Assessor & Verifier)', isActive: true, isDemo: true },
+  { id: 'user_registrar', username: 'registrar', password: 'password', role: 'registrar', name: 'Mrs. Grace Kerubo (Registrar)', isActive: true, isDemo: true },
+  { id: 'user_finance', username: 'finance', password: 'password', role: 'finance_officer', name: 'Mr. John Kamau (Finance)', isActive: true, isDemo: true },
+  { id: 'user_exams', username: 'exams', password: 'password', role: 'examinations_officer', name: 'Prof. David Koech (Exams Officer)', isActive: true, isDemo: true },
+  { id: 'user_hod', username: 'hod', password: 'password', role: 'hod', name: 'Dr. Andrew Rabach (HOD CSIT)', departmentId: 'dept_cs', isActive: true, isDemo: true },
+  { id: 'user_hod_be', username: 'hod_be', password: 'password', role: 'hod', name: 'Eng. Faith Bosire (HOD Building & Civil / Plumbing)', departmentId: 'dept_be', isActive: true, isDemo: true },
+  { id: 'user_trainer', username: 'trainer', password: 'password', role: 'trainer', name: 'Mr. Evans Kemboi (Trainer)', departmentId: 'dept_cs', isActive: true, pfNumber: 'PF-2024-042', isDemo: true },
+  { id: 'user_trainer_be', username: 'trainer_be', password: 'password', role: 'trainer', name: 'Mr. Dennis Mogaka (Plumbing Trainer)', departmentId: 'dept_be', isActive: true, pfNumber: 'PF-2023-018', isDemo: true },
+  { id: 'user_manager', username: 'manager', password: 'password', role: 'manager', name: 'Academic Manager (Timetable & Verification)', isActive: true, isDemo: true },
+  { id: 'user_review', username: 'review', password: 'password', role: 'review', name: 'Academic Review Officer (Timetable Review & Audit)', isActive: true, isDemo: true },
+  { id: 'user_student1', username: 'KTVC/DICT/2026J/001', password: 'password', role: 'student', name: 'Emmanuel Omondi (Trainee)', isActive: true, code: 'KTVC/DICT/2026J/001', isDemo: true },
+  { id: 'user_student2', username: 'KTVC/DCS/2026J/002', password: 'password', role: 'student', name: 'Faith Chepkoech (Trainee)', isActive: true, code: 'KTVC/DCS/2026J/002', isDemo: true },
+  { id: 'user_trainee', username: 'trainee', password: 'password', role: 'trainee', name: 'Brian Kiprop (Electrical Trainee)', isActive: true, code: 'KTVC/CEI/2026J/015', isDemo: true }
 ];
 
 // Seed time slot definitions (for labels)

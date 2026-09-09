@@ -25,6 +25,7 @@ export interface User {
   departmentId?: string; // Associated department for HODs (and primary for Trainers)
   isActive: boolean;
   isDefault?: boolean; // Protect seed accounts
+  isDemo?: boolean; // Identifies seed demonstration accounts
   code?: string;
   phone?: string;
   email?: string;

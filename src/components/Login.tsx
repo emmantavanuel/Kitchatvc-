@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { KeyRound, ShieldAlert, Users, LogIn } from 'lucide-react';
+import { KeyRound, ShieldAlert, Users, LogIn, Award } from 'lucide-react';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 
 interface LoginProps {
@@ -64,9 +64,15 @@ export default function Login({ onLogin, users, departments, onBackToWebsite }: 
           <h2 className="text-xl sm:text-2xl font-bold font-display text-slate-900 tracking-tight leading-snug px-2">
             KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE
           </h2>
-          <p className="mt-2 text-xs sm:text-sm font-semibold text-indigo-600 tracking-wider uppercase font-mono">
-            Smart College ERP & Scheduling Suite
+          <p className="mt-2 text-xs sm:text-sm font-semibold text-indigo-600 tracking-wider uppercase font-mono flex items-center justify-center gap-1.5">
+            <span>Smart College ERP, Scheduling &amp; TVET PoE Suite</span>
           </p>
+          <div className="mt-2 flex items-center justify-center gap-2">
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-3xs">
+              <Award className="w-3 h-3 text-amber-600" />
+              <span>TVET CDACC Portfolio of Evidence Enabled</span>
+            </span>
+          </div>
         </div>
 
         {/* Login Card */}
@@ -131,119 +137,6 @@ export default function Login({ onLogin, users, departments, onBackToWebsite }: 
               Sign In
             </button>
           </form>
-
-          {/* Quick TVET PoE Role Demonstration Logins */}
-          <div className="mt-6 pt-5 border-t border-slate-100 space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              <span>Quick Role Demo Logins</span>
-              <span className="text-indigo-600 lowercase font-medium">click to fill & log in</span>
-            </div>
-            <div className="grid grid-cols-2 gap-1.5 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.username === 'admin');
-                  if (user) onLogin(user);
-                  else { setUsername('admin'); setPassword('admin123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Admin</span>
-                <span className="text-[10px] text-slate-400 font-mono">admin / admin123</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'principal');
-                  if (user) onLogin(user);
-                  else { setUsername('principal'); setPassword('principal123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Principal</span>
-                <span className="text-[10px] text-slate-400 font-mono">Dr. Charles Kitur</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'deputy_academics');
-                  if (user) onLogin(user);
-                  else { setUsername('deputy_academics'); setPassword('deputy123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Deputy Academics</span>
-                <span className="text-[10px] text-slate-400 font-mono">Eng. Justus Ngetich</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'quality_assurance');
-                  if (user) onLogin(user);
-                  else { setUsername('qa_wanjiku'); setPassword('qa123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Quality Assurance</span>
-                <span className="text-[10px] text-slate-400 font-mono">Madam Scholastica</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'assessor');
-                  if (user) onLogin(user);
-                  else { setUsername('assessor_nyabuto'); setPassword('assessor123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Lead Assessor</span>
-                <span className="text-[10px] text-slate-400 font-mono">Mr. Benson Nyabuto</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'hod');
-                  if (user) onLogin(user);
-                  else { setUsername('dr_rabach'); setPassword('hod123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">HOD CSIT</span>
-                <span className="text-[10px] text-slate-400 font-mono">Dr. Andrew Rabach</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'trainer');
-                  if (user) onLogin(user);
-                  else { setUsername('kemboi'); setPassword('kemboi123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Trainer</span>
-                <span className="text-[10px] text-slate-400 font-mono">Mr. Evans Kemboi</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const user = users.find(u => u.role === 'trainee' || u.role === 'student');
-                  if (user) onLogin(user);
-                  else { setUsername('emmanuel'); setPassword('student123'); }
-                }}
-                className="p-2 text-left rounded-lg bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 transition-colors text-[11px] font-semibold cursor-pointer"
-              >
-                <span className="block font-bold text-slate-800">Trainee (Student)</span>
-                <span className="text-[10px] text-slate-400 font-mono">Emmanuel Omondi</span>
-              </button>
-            </div>
-          </div>
 
           {/* Clean system stats layout inside the card to keep it professional */}
           <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-3 gap-2.5 text-center text-xs">

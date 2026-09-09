@@ -42,6 +42,8 @@ export function broadcastLocalUpdate(domain: string, data: any) {
  * Fires instantly whenever another tab or another machine modifies the timetable or state!
  */
 export function subscribeToRealtimeUpdates(callback: (payload: {
+  users?: any[];
+  demoAccountsPurged?: boolean;
   timetableEntries?: any[];
   units?: any[];
   courseGroups?: any[];
@@ -181,6 +183,32 @@ export async function testConnection(): Promise<boolean> {
 let lastFirestoreErrorMessage: string | null = null;
 
 /**
+ * Helper to deduplicate timetable entries and ensure no duplicate or stale slot assignments exist
+ */
+export function deduplicateTimetableEntries(entries: any[]): any[] {
+  if (!Array.isArray(entries)) return [];
+  const seenIds = new Set<string>();
+  const seenSlots = new Map<string, any>();
+
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry || typeof entry !== 'object') continue;
+    const id = entry.id ? String(entry.id) : `entry_${i}`;
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+
+    const grpKey = entry.groupId || entry.groupName ? String(entry.groupId || entry.groupName).trim().toLowerCase() : '__whole__';
+    const slotKey = `${entry.courseId}_${entry.semesterName}_${entry.day}_${entry.slotId}_${grpKey}`;
+
+    if (!seenSlots.has(slotKey)) {
+      seenSlots.set(slotKey, { ...entry, id });
+    }
+  }
+
+  return Array.from(seenSlots.values()).reverse();
+}
+
+/**
  * Load consolidated application state from Server API or Firestore.
  */
 export async function loadApplicationState(localLastUpdated?: string | null): Promise<any | null> {
@@ -200,8 +228,6 @@ export async function loadApplicationState(localLastUpdated?: string | null): Pr
         if (json && json.success && json.state) {
           serverState = json.state;
           serverTimestamp = json.updatedAt || null;
-          console.log('[Database] Express API snapshot loaded instantly. Timestamp:', serverTimestamp);
-          return serverState;
         }
       }
     }
@@ -209,30 +235,63 @@ export async function loadApplicationState(localLastUpdated?: string | null): Pr
     // Expected when offline or on static hosting
   }
 
-  // 2. Secondary fallback: Cloud Firestore
+  // 2. Secondary: Cloud Firestore (Checks both timetable_state and dedicated timetable doc)
   let cloudState: any = null;
   let cloudTimestamp: string | null = null;
+  let directTimetableData: any = null;
+
   if (db) {
     try {
-      const docRef = doc(db, 'app_state', 'timetable_state');
-      const docSnap: any = await Promise.race([
-        getDoc(docRef),
-        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 4000))
+      const masterDocRef = doc(db, 'app_state', 'timetable_state');
+      const timetableDocRef = doc(db, 'app_state', 'timetable');
+
+      const [masterSnap, timetableSnap]: any = await Promise.all([
+        getDoc(masterDocRef).catch(() => null),
+        getDoc(timetableDocRef).catch(() => null)
       ]);
 
-      if (docSnap && docSnap.exists()) {
-        const docData = docSnap.data();
+      if (masterSnap && masterSnap.exists()) {
+        const docData = masterSnap.data();
         if (docData && docData.data) {
           cloudState = docData.data;
           cloudTimestamp = docData.updatedAt || null;
         }
       }
+
+      if (timetableSnap && timetableSnap.exists()) {
+        const tData = timetableSnap.data();
+        if (tData?.timetableEntries && Array.isArray(tData.timetableEntries)) {
+          directTimetableData = tData;
+        }
+      }
     } catch (firestoreErr: any) {
-      console.warn('[Database] Firestore fallback notice:', firestoreErr?.message || firestoreErr);
+      console.warn('[Database] Firestore hydration notice:', firestoreErr?.message || firestoreErr);
     }
   }
 
-  return cloudState || serverState;
+  // Prefer the freshest state, with Firestore timetable data taking precedence if available
+  let effectiveState = serverState || cloudState || {};
+  if (cloudState && (!serverTimestamp || (cloudTimestamp && cloudTimestamp > serverTimestamp))) {
+    effectiveState = { ...effectiveState, ...cloudState };
+  }
+
+  if (directTimetableData && directTimetableData.timetableEntries) {
+    // If direct timetable doc has entries, ensure they are integrated and deduplicated
+    const directEntries = deduplicateTimetableEntries(directTimetableData.timetableEntries);
+    const existingEntries = effectiveState.timetableEntries || [];
+    
+    // Use direct timetable entries if they are newer or richer
+    if (directEntries.length > 0) {
+      effectiveState = {
+        ...effectiveState,
+        timetableEntries: directEntries,
+        ...(directTimetableData.units?.length ? { units: directTimetableData.units } : {}),
+        ...(directTimetableData.courseGroups?.length ? { courseGroups: directTimetableData.courseGroups } : {})
+      };
+    }
+  }
+
+  return Object.keys(effectiveState).length > 0 ? effectiveState : null;
 }
 
 // Solid, atomic queue for sequential cloud sync
@@ -254,6 +313,8 @@ export async function saveApplicationState(payload: any): Promise<{
 
   // Broadcast to other tabs immediately for 0ms same-machine sync
   broadcastLocalUpdate('all', {
+    users: payload.users,
+    demoAccountsPurged: payload.demoAccountsPurged,
     timetableEntries: payload.timetableEntries,
     units: payload.units,
     courseGroups: payload.courseGroups,
@@ -300,7 +361,8 @@ export async function saveApplicationState(payload: any): Promise<{
  * Dedicated instant save for Timetable entries to ensure zero latency and full overwrite capability
  */
 export async function saveTimetableDirectly(timetableEntries: any[], units?: any[], courseGroups?: any[], allowOverwrite: boolean = true) {
-  const cleanEntries = JSON.parse(JSON.stringify(timetableEntries, (k, v) => (v === undefined ? null : v)));
+  const rawEntries = JSON.parse(JSON.stringify(timetableEntries, (k, v) => (v === undefined ? null : v)));
+  const cleanEntries = deduplicateTimetableEntries(rawEntries);
   const cleanUnits = units ? JSON.parse(JSON.stringify(units, (k, v) => (v === undefined ? null : v))) : undefined;
   const cleanGroups = courseGroups ? JSON.parse(JSON.stringify(courseGroups, (k, v) => (v === undefined ? null : v))) : undefined;
 
@@ -311,6 +373,7 @@ export async function saveTimetableDirectly(timetableEntries: any[], units?: any
     courseGroups: cleanGroups
   });
 
+  // 1. Save to Express server immediately
   try {
     await fetch('/api/save-timetable', {
       method: 'POST',
@@ -319,21 +382,31 @@ export async function saveTimetableDirectly(timetableEntries: any[], units?: any
         timetableEntries: cleanEntries, 
         units: cleanUnits, 
         courseGroups: cleanGroups,
-        allowOverwrite: true
+        allowOverwrite: allowOverwrite ?? true
       })
     });
   } catch {}
 
-  // Direct Firestore cloud backup
+  // 2. Direct Firestore cloud backup to both timetable doc and timetable_state doc
   if (db) {
     try {
       const nowIso = new Date().toISOString();
-      setDoc(doc(db, 'app_state', 'timetable'), {
+      const p1 = setDoc(doc(db, 'app_state', 'timetable'), {
         timetableEntries: cleanEntries,
         units: cleanUnits || [],
         courseGroups: cleanGroups || [],
         updatedAt: nowIso
-      }).catch(() => {});
+      });
+      const p2 = setDoc(doc(db, 'app_state', 'timetable_state'), {
+        data: {
+          timetableEntries: cleanEntries,
+          ...(cleanUnits ? { units: cleanUnits } : {}),
+          ...(cleanGroups ? { courseGroups: cleanGroups } : {})
+        },
+        updatedAt: nowIso
+      }, { merge: true });
+
+      await Promise.allSettled([p1, p2]);
     } catch {}
   }
 
@@ -488,3 +561,28 @@ async function executeSave(payload: any) {
     updatedAt: nowIso
   };
 }
+
+/**
+ * Dedicated call to permanently purge all demonstration accounts across server, disk, and cloud Firestore
+ */
+export async function purgeDemoAccountsDirectly(): Promise<{ 
+  success: boolean; 
+  purgedCount: number; 
+  remainingCount: number; 
+  users: any[] 
+}> {
+  try {
+    const res = await fetch('/api/purge-demo-accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (e) {
+    console.warn('[Purge] API purge notice:', e);
+  }
+  return { success: false, purgedCount: 0, remainingCount: 0, users: [] };
+}
+

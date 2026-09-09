@@ -5,7 +5,7 @@ import {
 import { TIME_SLOTS } from '../data/seedData';
 import { formatCombinedBadges } from '../utils/scheduler';
 import { 
-  Calendar, Clock, Star, HelpCircle, Check, X, Printer, ShieldAlert, CheckCircle2, GraduationCap
+  Calendar, Clock, Star, HelpCircle, Check, X, Printer, ShieldAlert, CheckCircle2, GraduationCap, Award
 } from 'lucide-react';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 import UserProfileModal from './UserProfileModal';
@@ -24,6 +24,7 @@ interface TrainerDashboardProps {
   onUpdateTrainerPreferences: (prefs: TrainerSlotPreference[]) => void;
   onUpdateUsers: (users: User[]) => void;
   onLogout: () => void;
+  onNavigateToPoe?: () => void;
 }
 
 type TabType = 'my_timetable' | 'my_avail' | 'units_per_module';
@@ -95,7 +96,8 @@ export default function TrainerDashboard({
   academicSetting,
   onUpdateTrainerPreferences,
   onUpdateUsers,
-  onLogout
+  onLogout,
+  onNavigateToPoe
 }: TrainerDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('my_timetable');
   const [tempPreferences, setTempPreferences] = useState<TrainerSlotPreference[]>(trainerPreferences);
@@ -493,6 +495,24 @@ export default function TrainerDashboard({
             <GraduationCap className="w-4.5 h-4.5" />
             Curriculum Units per Module
           </button>
+
+          {onNavigateToPoe && (
+            <div className="pt-2">
+              <button 
+                onClick={onNavigateToPoe}
+                id="btn-trainer-poe-portal"
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100/90 border border-amber-200/90 shadow-3xs transition-all text-left cursor-pointer"
+                title="Open TVET Portfolio of Evidence (PoE) & Assess Trainee Evidence"
+              >
+                <Award className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate">TVET PoE Portal</div>
+                  <div className="text-[10px] text-amber-700 font-normal">Assess Evidence &amp; CDACC</div>
+                </div>
+                <span className="text-[9px] bg-amber-200 text-amber-900 font-extrabold px-1.5 py-0.5 rounded">CDACC</span>
+              </button>
+            </div>
+          )}
 
           <div className="mt-auto pt-6 border-t border-slate-100">
             <button

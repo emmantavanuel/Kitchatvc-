@@ -3,12 +3,12 @@ import {
   User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, CourseGroup,
   WebsiteConfig
 } from '../types';
-import { TIME_SLOTS } from '../data/seedData';
+import { TIME_SLOTS, isDemoAccount } from '../data/seedData';
 import { DEFAULT_WEBSITE_CONFIG } from '../data/websiteData';
 import { 
   Users, Layers, GraduationCap, School, Calendar, LayoutGrid, BarChart3, Database,
   Plus, Edit2, Trash2, ShieldAlert, Key, ToggleLeft, ToggleRight, Download, Upload, CheckCircle2, XCircle,
-  Printer, FileDown, BookOpen, Briefcase, Globe
+  Printer, FileDown, BookOpen, Briefcase, Globe, Award
 } from 'lucide-react';
 import { detectConflicts, buildCombinedCohorts, formatCombinedBadges, getMatchingEntriesForCohortCell } from '../utils/scheduler';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
@@ -40,6 +40,8 @@ interface AdminDashboardProps {
   fullState: any;
   websiteConfig?: WebsiteConfig;
   onUpdateWebsiteConfig?: (config: WebsiteConfig) => void;
+  onNavigateToPoe?: () => void;
+  onPurgeDemoAccounts?: () => Promise<number> | void;
 }
 
 type TabType = 'users' | 'departments' | 'courses' | 'classrooms' | 'units' | 'academic' | 'global_timetables' | 'reports' | 'trainer_workload' | 'backup' | 'website';
@@ -122,6 +124,7 @@ export default function AdminDashboard({
   courses,
   classrooms,
   units,
+  courseGroups = [],
   timetableEntries,
   trainerPreferences,
   academicSetting,
@@ -136,7 +139,9 @@ export default function AdminDashboard({
   onLogout,
   fullState,
   websiteConfig,
-  onUpdateWebsiteConfig
+  onUpdateWebsiteConfig,
+  onNavigateToPoe,
+  onPurgeDemoAccounts
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('users');
   
@@ -289,14 +294,64 @@ export default function AdminDashboard({
     setShowUserModal(false);
   };
 
+  const [isPurgingDemoAccounts, setIsPurgingDemoAccounts] = useState(false);
+
   const handleDeleteUser = (id: string) => {
     const userToDelete = users.find(u => u.id === id);
     if (id === currentUser.id) {
       alert("You cannot delete your own logged-in account!");
       return;
     }
-    if (confirm("Are you sure you want to delete this user account?")) {
+    if (confirm(`Are you sure you want to permanently delete this user account (${userToDelete?.name || id})?`)) {
       onUpdateUsers(users.filter(u => u.id !== id));
+    }
+  };
+
+  const handlePurgeAllDemoAccounts = async () => {
+    const demoAccounts = users.filter(u => isDemoAccount(u));
+    if (demoAccounts.length === 0) {
+      alert("There are no demonstration accounts present. All demo accounts have already been permanently purged from the system.");
+      return;
+    }
+
+    const firstConfirm = confirm(
+      `[PERMANENT DELETION OF DEMO ACCOUNTS]\n\n` +
+      `Are you sure you want to permanently delete all ${demoAccounts.length} demonstration accounts?\n\n` +
+      `This will completely erase:\n` +
+      `• Principal & Deputy Principal Academics\n` +
+      `• Quality Assurance Officer & Lead TVET Assessor\n` +
+      `• Registrar, Finance Officer & Examinations Officer\n` +
+      `• Department HODs & Demo Trainers\n` +
+      `• Demo Trainees / Students\n\n` +
+      `Your Super Administrator account (${currentUser.username}) and all legitimate staff and students will remain 100% untouched.\n\n` +
+      `Proceed with permanent deletion?`
+    );
+    if (!firstConfirm) return;
+
+    const secondConfirm = confirm(
+      `[FINAL CONFIRMATION]\n\n` +
+      `This action cannot be undone. Click OK to permanently wipe all ${demoAccounts.length} demo accounts from local storage, the web server, and Cloud Firestore.`
+    );
+    if (!secondConfirm) return;
+
+    try {
+      setIsPurgingDemoAccounts(true);
+      if (onPurgeDemoAccounts) {
+        const count = await onPurgeDemoAccounts();
+        alert(`Success: All ${count || demoAccounts.length} demo accounts have been permanently purged from the system!`);
+      } else {
+        const remainingUsers = users.filter(u => !isDemoAccount(u));
+        if (!remainingUsers.some(u => u.role === 'admin' || u.username.toLowerCase() === 'admin')) {
+          const adminAcc = users.find(u => u.role === 'admin') || currentUser;
+          remainingUsers.unshift(adminAcc);
+        }
+        onUpdateUsers(remainingUsers);
+        alert(`Success: All ${demoAccounts.length} demo accounts have been permanently deleted.`);
+      }
+    } catch (err: any) {
+      alert(`Error during demo account purge: ${err?.message || 'Please try again.'}`);
+    } finally {
+      setIsPurgingDemoAccounts(false);
     }
   };
 
@@ -1255,13 +1310,15 @@ export default function AdminDashboard({
     };
 
     // Build combined cohorts (e.g. combining BT-L5 and BT-L6 into BT L5/L6 (M1) when unit & trainer match)
+    // Separates distinct module groups (e.g. Module 1 Group A, Module 1 Group B) when active groups are scheduled
     const filteredCohorts = buildCombinedCohorts(
       timetableEntries,
       courses,
       units,
       daysOfWeek,
       timeSlots,
-      selectedDeptFilter
+      selectedDeptFilter,
+      courseGroups
     );
 
     return (
@@ -1437,7 +1494,7 @@ export default function AdminDashboard({
                                   {cohort.courseCode} <span className="text-[10px] text-slate-500 font-sans font-normal">({getShortSemester(cohort.semesterName)}{cohort.groupName ? ` • ${cohort.groupName}` : ''})</span>
                                 </td>
                               {timeSlots.map(ts => {
-                                const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units);
+                                const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units, courseGroups);
 
                                 return (
                                   <td key={ts.id} className="border border-slate-200 px-2.5 py-2 align-middle text-center w-1/5 min-w-[130px] print:border print:border-slate-400">
@@ -1447,14 +1504,18 @@ export default function AdminDashboard({
                                           const unit = units.find(u => u.id === entry.unitId);
                                           const trainer = users.find(u => u.id === entry.trainerId);
                                           const room = classrooms.find(c => c.id === entry.classroomId);
+                                          let resolvedGrpName = entry.groupName;
+                                          if (!resolvedGrpName && entry.groupId) {
+                                            resolvedGrpName = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                          }
                                           return (
                                             <div key={entry.id || idx} className={`w-full ${idx > 0 ? 'border-t border-slate-200/80 pt-1.5' : ''}`}>
                                               <div className="font-mono font-black text-slate-950 text-[14px] sm:text-[15px] uppercase leading-tight print:text-[14px] print:font-black tracking-wide bg-slate-100/80 px-1.5 py-0.5 rounded border border-slate-200/50 print:bg-transparent print:border-none print:p-0">
                                                 {unit?.code || '?'}
                                               </div>
-                                              {(entry.groupName || entry.groupId) && (
-                                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 print:text-black print:border-none print:p-0 inline-block mt-0.5">
-                                                  {entry.groupName || 'Group'}
+                                              {resolvedGrpName && (
+                                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 print:text-black print:border-none print:p-0 inline-block mt-0.5 font-mono">
+                                                  {resolvedGrpName}
                                                 </span>
                                               )}
                                               <div className="text-[9.5px] font-bold text-indigo-600 print:text-black leading-none flex items-center justify-center gap-1 mt-0.5">
@@ -1568,54 +1629,56 @@ export default function AdminDashboard({
                                   <td className="border border-slate-200 px-2.5 py-2 font-bold text-slate-800 bg-slate-50 print:border-slate-400 print:bg-slate-100 print:text-black print:py-2 print:px-2 print:text-sm print:font-black print:w-20 print:text-center align-middle">{day}</td>
                                   {timeSlots.map(ts => {
                                     const matchingEntries = trainerClasses.filter(e => e.day === day && e.slotId === ts.id);
-                                    const entry = matchingEntries[0];
-                                    const unit = entry ? units.find(u => u.id === entry.unitId) : null;
-                                    const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
-
-                                    const levelSet = new Set<string>();
-                                    matchingEntries.forEach(e => {
-                                      const c = courses.find(item => item.id === e.courseId);
-                                      const code = c?.code || '?';
-                                      const sem = getShortSemester(e.semesterName);
-                                      const grp = e.groupName ? ` • ${e.groupName}` : '';
-                                      levelSet.add(`${code} (${sem}${grp})`);
-                                    });
-
-                                    const levelBadges = Array.from(levelSet);
-                                    const levelsText = formatCombinedBadges(levelBadges);
-                                    const isCommon = levelBadges.length > 1;
 
                                     return (
                                       <td key={ts.id} className="border border-slate-200 px-2 py-2 align-top w-1/5 min-w-[130px] print:border print:border-slate-400 print:p-1">
-                                        {entry && unit ? (
-                                          <div className="space-y-1 text-center">
-                                            <div className="flex items-start justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300 text-left">
-                                              <div className="leading-tight flex-1">
-                                                <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase text-slate-950 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
-                                                  {unit?.code || '?'}
-                                                </span>
-                                                {unit?.name && (
-                                                  <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
-                                                    ({unit.name})
-                                                  </span>
-                                                )}
-                                              </div>
-                                              {!entry.isPublished ? (
-                                                <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:hidden shrink-0">
-                                                  Draft
-                                                </span>
-                                              ) : isCommon ? (
-                                                <span className="text-[7px] font-bold text-purple-700 uppercase font-mono px-0.5 border border-purple-200 bg-purple-50 rounded print:hidden shrink-0">
-                                                  Common
-                                                </span>
-                                              ) : null}
-                                            </div>
-                                            <div className="text-[9px] text-indigo-600 block print:text-slate-800 print:text-[8.5px] print:font-semibold print:leading-none">
-                                              ROOM: {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}
-                                            </div>
-                                            <div className={`text-[8px] block font-mono font-bold leading-tight mt-0.5 print:text-black print:text-[9.5px] ${isCommon ? 'text-indigo-900 bg-indigo-50/80 p-0.5 rounded border border-indigo-100 print:bg-transparent print:border-none print:p-0' : 'text-slate-600'}`}>
-                                              {levelsText || (courses.find(c => c.id === entry.courseId)?.code ? `${courses.find(c => c.id === entry.courseId)?.code} (${getShortSemester(entry.semesterName)})` : '?')}
-                                            </div>
+                                        {matchingEntries.length > 0 ? (
+                                          <div className="space-y-1.5 text-center">
+                                            {matchingEntries.map((entry, entryIdx) => {
+                                              const unit = units.find(u => u.id === entry.unitId);
+                                              const room = classrooms.find(c => c.id === entry.classroomId);
+                                              const c = courses.find(item => item.id === entry.courseId);
+                                              const code = c?.code || '?';
+                                              const sem = getShortSemester(entry.semesterName);
+                                              let grp = entry.groupName;
+                                              if (!grp && entry.groupId) {
+                                                const cg = courseGroups.find(g => g.id === entry.groupId);
+                                                if (cg) grp = cg.name;
+                                              }
+
+                                              return (
+                                                <div key={entry.id || entryIdx} className={entryIdx > 0 ? 'border-t border-slate-200 pt-1 mt-1' : ''}>
+                                                  <div className="flex items-start justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300 text-left">
+                                                    <div className="leading-tight flex-1">
+                                                      <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase text-slate-950 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
+                                                        {unit?.code || '?'}
+                                                      </span>
+                                                      {unit?.name && (
+                                                        <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
+                                                          ({unit.name})
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                    {!entry.isPublished && (
+                                                      <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:hidden shrink-0">
+                                                        Draft
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-[9px] text-indigo-600 block print:text-slate-800 print:text-[8.5px] print:font-semibold print:leading-none">
+                                                    ROOM: {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}
+                                                  </div>
+                                                  <div className="text-[8.5px] block font-mono font-bold leading-tight mt-0.5 print:text-black print:text-[9.5px] text-indigo-950 bg-indigo-50/70 p-0.5 rounded border border-indigo-100 print:bg-transparent print:border-none print:p-0">
+                                                    {code} ({sem}{grp ? ` • ${grp}` : ''})
+                                                  </div>
+                                                  {grp && (
+                                                    <span className="text-[8px] font-bold font-mono px-1 py-0.2 rounded bg-indigo-100 text-indigo-900 border border-indigo-200 print:text-black print:border-none print:p-0 inline-block mt-0.5">
+                                                      {grp}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         ) : (
                                           <div className="h-full flex items-center justify-center">
@@ -1646,6 +1709,8 @@ export default function AdminDashboard({
                   dept: Department;
                   course: Course;
                   sem: string;
+                  groupId?: string;
+                  groupName?: string;
                 }[] = [];
 
                 departments
@@ -1655,10 +1720,56 @@ export default function AdminDashboard({
                     deptCourses.forEach(course => {
                       const semesters = ['Module 1', 'Module 2', 'Module 3', 'Module 4', 'Module 5', 'Module 6', 'Module 7', 'Module 8'].filter(sem => {
                         if (!hideEmptySemesters) return true;
-                        return timetableEntries.some(e => e.courseId === course.id && e.semesterName === sem);
+                        return timetableEntries.some(e => {
+                          const cMatch = e.courseId === course.id || (course.code && (e.courseId || '').toLowerCase() === course.code.toLowerCase());
+                          const sMatch = formatSemesterToModule(e.semesterName || '').toLowerCase() === formatSemesterToModule(sem).toLowerCase();
+                          return cMatch && sMatch;
+                        });
                       });
+
                       semesters.forEach(sem => {
-                        modulesToRender.push({ dept, course, sem });
+                        // Check if this module has active module groups scheduled
+                        const normSem = formatSemesterToModule(sem).toLowerCase();
+                        const moduleEntries = timetableEntries.filter(e => {
+                          const cMatch = e.courseId === course.id || (course.code && (e.courseId || '').toLowerCase() === course.code.toLowerCase());
+                          const sMatch = formatSemesterToModule(e.semesterName || '').toLowerCase() === normSem;
+                          return cMatch && sMatch;
+                        });
+
+                        const scheduledGroupsMap = new Map<string, { id?: string; name: string }>();
+                        moduleEntries.forEach(e => {
+                          let gName = e.groupName;
+                          if (!gName && e.groupId) {
+                            const cg = courseGroups.find(g => g.id === e.groupId);
+                            if (cg) gName = cg.name;
+                          }
+                          if (!gName && e.groupId) {
+                            gName = `Group ${e.groupId}`;
+                          }
+                          if (gName && gName.trim()) {
+                            const key = gName.trim().toLowerCase();
+                            if (!scheduledGroupsMap.has(key)) {
+                              scheduledGroupsMap.set(key, { id: e.groupId, name: gName.trim() });
+                            }
+                          }
+                        });
+
+                        if (scheduledGroupsMap.size > 0) {
+                          // Module has multiple active groups: separate them! (e.g. Module 1 Group A, Module 1 Group B)
+                          const sortedGroups = Array.from(scheduledGroupsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+                          sortedGroups.forEach(grp => {
+                            modulesToRender.push({
+                              dept,
+                              course,
+                              sem,
+                              groupId: grp.id,
+                              groupName: grp.name
+                            });
+                          });
+                        } else {
+                          // Standard module with no specific groups
+                          modulesToRender.push({ dept, course, sem });
+                        }
                       });
                     });
                   });
@@ -1671,10 +1782,10 @@ export default function AdminDashboard({
                   );
                 }
 
-                return modulesToRender.map(({ dept, course, sem }) => {
+                return modulesToRender.map(({ dept, course, sem, groupId, groupName }) => {
                   return (
                     <div 
-                      key={`${dept.id}_${course.id}_${sem}`} 
+                      key={`${dept.id}_${course.id}_${sem}_${groupName || 'all'}`} 
                       className="space-y-4 departmental-module-sheet"
                     >
                       {/* Individual Module Print Header */}
@@ -1699,7 +1810,7 @@ export default function AdminDashboard({
                             PROGRAM: {course.name.toUpperCase()} ({course.code})
                           </div>
                           <div>
-                            MODULE: {sem.toUpperCase()}
+                            MODULE: {sem.toUpperCase()}{groupName ? ` - ${groupName.toUpperCase()}` : ''}
                           </div>
                           <div>
                             TERM: {academicSetting.academicYear} - {academicSetting.semester}
@@ -1729,43 +1840,73 @@ export default function AdminDashboard({
                                     {day}
                                   </td>
                                   {timeSlots.map(ts => {
-                                    const entry = timetableEntries.find(e => e.courseId === course.id && e.semesterName === sem && e.day === day && e.slotId === ts.id);
-                                    const unit = entry ? units.find(u => u.id === entry.unitId) : null;
-                                    const trainer = entry ? users.find(u => u.id === entry.trainerId) : null;
-                                    const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
+                                    const slotEntries = timetableEntries.filter(e => {
+                                      const cMatch = e.courseId === course.id || (course.code && (e.courseId || '').toLowerCase() === course.code.toLowerCase());
+                                      const sMatch = formatSemesterToModule(e.semesterName || '').toLowerCase() === formatSemesterToModule(sem).toLowerCase();
+                                      const dMatch = e.day === day && e.slotId === ts.id;
+                                      if (!cMatch || !sMatch || !dMatch) return false;
+
+                                      if (groupName || groupId) {
+                                        let eGrpName = e.groupName;
+                                        if (!eGrpName && e.groupId) {
+                                          const cg = courseGroups.find(g => g.id === e.groupId);
+                                          if (cg) eGrpName = cg.name;
+                                        }
+                                        const isThisGroup = 
+                                          (groupId && e.groupId === groupId) ||
+                                          (groupName && eGrpName && eGrpName.trim().toLowerCase() === groupName.trim().toLowerCase());
+                                        const isCommonLesson = !e.groupId && !e.groupName;
+                                        return isThisGroup || isCommonLesson;
+                                      }
+                                      return true;
+                                    });
 
                                     return (
                                       <td key={ts.id} className="border border-slate-200 px-2 py-2 align-top w-1/5 min-w-[130px] print:border print:border-slate-400 print:p-1">
-                                        {entry ? (
-                                          <div className="space-y-1 text-center">
-                                            <div className="flex items-start justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300 text-left">
-                                              <div className="leading-tight flex-1">
-                                                <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase text-slate-950 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
-                                                  {unit?.code || '?'}
-                                                </span>
-                                                {unit?.name && (
-                                                  <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
-                                                    ({unit.name})
-                                                  </span>
-                                                )}
-                                              </div>
-                                              {!entry.isPublished ? (
-                                                <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:hidden shrink-0">
-                                                  Draft
-                                                </span>
-                                              ) : null}
-                                            </div>
-                                            <div className="text-[9px] text-indigo-600 block print:text-black print:text-[9px] print:font-bold print:leading-none">
-                                              👤 {getTrainerInitials(trainer?.name || '?', trainer || undefined)} {trainer?.code ? `(${trainer.code})` : ''}
-                                            </div>
-                                            <div className="text-[9px] text-slate-500 block print:text-slate-700 print:text-[8px] print:font-medium print:leading-none mt-0.5">
-                                              🏢 {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}
-                                            </div>
-                                            {entry.groupName && (
-                                              <div className="text-[8px] font-bold font-mono text-indigo-800 print:text-black bg-indigo-50 px-1 py-0.5 rounded inline-block mt-0.5">
-                                                {entry.groupName}
-                                              </div>
-                                            )}
+                                        {slotEntries.length > 0 ? (
+                                          <div className="space-y-1.5 text-center">
+                                            {slotEntries.map((entry, entryIdx) => {
+                                              const unit = units.find(u => u.id === entry.unitId);
+                                              const trainer = users.find(u => u.id === entry.trainerId);
+                                              const room = classrooms.find(c => c.id === entry.classroomId);
+                                              let resolvedGrp = entry.groupName;
+                                              if (!resolvedGrp && entry.groupId) {
+                                                resolvedGrp = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                              }
+
+                                              return (
+                                                <div key={entry.id || entryIdx} className={entryIdx > 0 ? 'border-t border-slate-200 pt-1 mt-1' : ''}>
+                                                  <div className="flex items-start justify-between gap-1 border-b border-slate-100 pb-0.5 mb-0.5 print:border-slate-300 text-left">
+                                                    <div className="leading-tight flex-1">
+                                                      <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase text-slate-950 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
+                                                        {unit?.code || '?'}
+                                                      </span>
+                                                      {unit?.name && (
+                                                        <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
+                                                          ({unit.name})
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                    {!entry.isPublished && (
+                                                      <span className="text-[7px] font-bold text-amber-600 uppercase font-mono px-0.5 border border-amber-200 bg-amber-50 rounded print:hidden shrink-0">
+                                                        Draft
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-[9px] text-indigo-600 block print:text-black print:text-[9px] print:font-bold print:leading-none">
+                                                    👤 {getTrainerInitials(trainer?.name || '?', trainer || undefined)} {trainer?.code ? `(${trainer.code})` : ''}
+                                                  </div>
+                                                  <div className="text-[9px] text-slate-500 block print:text-slate-700 print:text-[8px] print:font-medium print:leading-none mt-0.5">
+                                                    🏢 {room?.name ? room.name.replace(/Room\s+/i, '').replace(/Laboratory\s+/i, 'Lab').trim() : '?'}
+                                                  </div>
+                                                  {resolvedGrp && (
+                                                    <div className="text-[8px] font-bold font-mono text-indigo-800 print:text-black bg-indigo-50 px-1 py-0.5 rounded inline-block mt-0.5">
+                                                      {resolvedGrp}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         ) : (
                                           <div className="h-full flex items-center justify-center">
@@ -1940,6 +2081,24 @@ export default function AdminDashboard({
             <span>Website CMS & Adverts</span>
           </button>
 
+          {onNavigateToPoe && (
+            <div className="pt-2">
+              <button 
+                onClick={onNavigateToPoe}
+                id="btn-admin-poe-portal"
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100/90 border border-amber-200/90 shadow-3xs transition-all text-left cursor-pointer"
+                title="Open TVET Portfolio of Evidence (PoE) & CDACC Assessment System"
+              >
+                <Award className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate">TVET PoE Portal</div>
+                  <div className="text-[10px] text-amber-700 font-normal">Evidence &amp; CDACC</div>
+                </div>
+                <span className="text-[9px] bg-amber-200 text-amber-900 font-extrabold px-1.5 py-0.5 rounded">CDACC</span>
+              </button>
+            </div>
+          )}
+
           <div className="mt-6 pt-5 border-t border-slate-100 space-y-2">
             <button 
               onClick={() => setPrintMasterPreview(true)}
@@ -1997,7 +2156,19 @@ export default function AdminDashboard({
                   <h2 className="text-2xl font-bold text-slate-800 font-display">User Accounts Directory</h2>
                   <p className="text-sm text-slate-400 mt-0.5">Separate management for Staff/Faculty credentials and Student Portal access accounts.</p>
                 </div>
-                <div className="flex flex-wrap gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {users.some(u => isDemoAccount(u)) && (
+                    <button
+                      onClick={handlePurgeAllDemoAccounts}
+                      disabled={isPurgingDemoAccounts}
+                      id="btn-purge-all-demo-accounts"
+                      className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition-all cursor-pointer shadow-3xs disabled:opacity-50"
+                      title="Permanently remove all demonstration role accounts from the database"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      {isPurgingDemoAccounts ? 'Purging Demo Accounts...' : `Delete All Demo Accounts (${users.filter(u => isDemoAccount(u)).length})`}
+                    </button>
+                  )}
                   {userSubTab === 'staff' ? (
                     <>
                       <button
@@ -2052,6 +2223,41 @@ export default function AdminDashboard({
                 </div>
               </div>
 
+              {/* Demo Accounts Status Notification Banner */}
+              {users.some(u => isDemoAccount(u)) ? (
+                <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-amber-900 shadow-3xs">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl mt-0.5 shrink-0">
+                      <ShieldAlert className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm text-amber-950">Demonstration Accounts Active ({users.filter(u => isDemoAccount(u)).length} accounts)</h4>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900 uppercase tracking-wide">Demo Mode</span>
+                      </div>
+                      <p className="text-amber-800/90 mt-1 leading-relaxed">
+                        Preloaded demonstration accounts (Principal, Deputy Principal, QA, Assessor, Registrar, Finance, Exams, HODs, Demo Trainers & Trainees) are present in the system. You can permanently wipe all demo accounts to transition the ERP system to production mode. Your Super Administrator account ({currentUser.username}) and all manually registered staff will be kept 100% safe.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handlePurgeAllDemoAccounts}
+                    disabled={isPurgingDemoAccounts}
+                    className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {isPurgingDemoAccounts ? 'Purging...' : 'Permanently Delete All Demo Accounts'}
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200/80 flex items-center justify-between gap-3 text-xs text-emerald-900 shadow-3xs">
+                  <div className="flex items-center gap-2.5 font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span><strong>Production Environment Active:</strong> All demonstration role accounts have been permanently purged. Only verified college staff, faculty, and student accounts are retained in the database.</span>
+                  </div>
+                </div>
+              )}
+
               {/* Sub-tab navigation toggle */}
               <div className="flex bg-slate-100 p-1 rounded-2xl max-w-md">
                 <button
@@ -2103,7 +2309,14 @@ export default function AdminDashboard({
                             <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
                               <td className="px-6 py-4">
                                 <div>
-                                  <span className="font-semibold text-slate-800 block">{u.name}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-800 block">{u.name}</span>
+                                    {isDemoAccount(u) && (
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
+                                        Demo Account
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="space-y-0.5 mt-0.5">
                                     <span className="text-xs text-slate-400 font-mono block">username: {u.username}</span>
                                     {u.code && (
@@ -2222,7 +2435,16 @@ export default function AdminDashboard({
                           )
                           .map((u) => (
                             <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-6 py-4 font-bold text-slate-900">{u.name}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-900">{u.name}</span>
+                                  {isDemoAccount(u) && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 uppercase tracking-wider">
+                                      Demo Student
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-6 py-4 font-mono font-bold text-indigo-700">{u.username}</td>
                               <td className="px-6 py-4">
                                 <span className="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase bg-indigo-50 text-indigo-700 border border-indigo-100">

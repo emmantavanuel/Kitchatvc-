@@ -160,7 +160,8 @@ export default function ReviewerDashboard({
     units,
     daysOfWeek,
     timeSlots,
-    selectedDeptId === 'all' ? undefined : selectedDeptId
+    selectedDeptId === 'all' ? undefined : selectedDeptId,
+    courseGroups
   );
 
   // Filter master cohorts by search query
@@ -190,7 +191,8 @@ export default function ReviewerDashboard({
     units,
     daysOfWeek,
     timeSlots,
-    deptViewDeptId
+    deptViewDeptId,
+    courseGroups
   );
 
   // Calculate conflict count for auditing
@@ -243,13 +245,17 @@ export default function ReviewerDashboard({
       filteredMasterCohorts.forEach(cohort => {
         const cohortLabel = `${cohort.courseCode} (${getShortSemester(cohort.semesterName)}${cohort.groupName ? ` - ${cohort.groupName}` : ''})`;
         const rowCells = timeSlots.map(ts => {
-          const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units);
+          const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units, courseGroups);
           if (matchingEntries.length === 0) return '-';
           const items = matchingEntries.map(entry => {
             const unit = units.find(u => u.id === entry.unitId);
             const trainer = users.find(u => u.id === entry.trainerId);
             const room = classrooms.find(c => c.id === entry.classroomId);
-            const grp = entry.groupName ? ` (${entry.groupName})` : '';
+            let resolvedGrp = entry.groupName;
+            if (!resolvedGrp && entry.groupId) {
+              resolvedGrp = courseGroups.find(g => g.id === entry.groupId)?.name;
+            }
+            const grp = resolvedGrp ? ` (${resolvedGrp})` : '';
             return `${unit?.code || '?'} [${getTrainerInitials(trainer?.name || '?', trainer)} / ${getRoomCode(room?.name || '?')}]${grp}`;
           });
           return `"${items.join(' & ')}"`;
@@ -426,7 +432,7 @@ export default function ReviewerDashboard({
                           {cohort.courseCode} <span className="text-[10px] text-slate-600 font-sans font-semibold">({getShortSemester(cohort.semesterName)}{cohort.groupName ? ` • ${cohort.groupName}` : ''})</span>
                         </td>
                         {timeSlots.map(ts => {
-                          const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units);
+                          const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units, courseGroups);
                           return (
                             <td key={ts.id} className="border border-slate-300 px-2 py-1.5 text-center align-middle w-1/5 min-w-[130px] print:border-slate-500">
                               {matchingEntries.length > 0 ? (
@@ -435,14 +441,18 @@ export default function ReviewerDashboard({
                                     const unit = units.find(u => u.id === entry.unitId);
                                     const trainer = users.find(u => u.id === entry.trainerId);
                                     const room = classrooms.find(c => c.id === entry.classroomId);
+                                    let resolvedGrp = entry.groupName;
+                                    if (!resolvedGrp && entry.groupId) {
+                                      resolvedGrp = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                    }
                                     return (
                                       <div key={entry.id || idx} className={`w-full ${idx > 0 ? 'border-t border-slate-200/80 pt-1' : ''}`}>
                                         <div className="font-mono font-black text-slate-950 text-xs sm:text-[13px] uppercase">
                                           {unit?.code || '?'}
                                         </div>
-                                        {entry.groupName && (
-                                          <span className="text-[7.5px] font-bold px-1 rounded bg-indigo-50 text-indigo-800">
-                                            {entry.groupName}
+                                        {resolvedGrp && (
+                                          <span className="text-[7.5px] font-bold px-1 rounded bg-indigo-50 text-indigo-800 font-mono">
+                                            {resolvedGrp}
                                           </span>
                                         )}
                                         <div className="text-[9px] font-bold text-indigo-700 flex items-center justify-center gap-1 mt-0.5">
@@ -898,7 +908,7 @@ export default function ReviewerDashboard({
                               </span>
                             </td>
                             {timeSlots.map(ts => {
-                              const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units);
+                              const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units, courseGroups);
 
                               return (
                                 <td key={ts.id} className="border border-slate-200 px-2 py-1.5 text-center align-middle w-1/5 min-w-[130px] print:border-slate-400">
@@ -909,14 +919,18 @@ export default function ReviewerDashboard({
                                           const unit = units.find(u => u.id === entry.unitId);
                                           const trainer = users.find(u => u.id === entry.trainerId);
                                           const room = classrooms.find(c => c.id === entry.classroomId);
+                                          let resolvedGrp = entry.groupName;
+                                          if (!resolvedGrp && entry.groupId) {
+                                            resolvedGrp = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                          }
                                           return (
                                             <div key={entry.id || idx} className={`w-full ${idx > 0 ? 'border-t border-slate-200/70 pt-1' : ''}`}>
                                               <div className="font-mono font-black text-slate-950 text-xs sm:text-[13px] uppercase tracking-wide">
                                                 {unit?.code || '?'}
                                               </div>
-                                              {entry.groupName && (
-                                                <span className="text-[7.5px] font-bold px-1 rounded bg-indigo-50 text-indigo-800">
-                                                  {entry.groupName}
+                                              {resolvedGrp && (
+                                                <span className="text-[7.5px] font-bold px-1 rounded bg-indigo-50 text-indigo-800 font-mono">
+                                                  {resolvedGrp}
                                                 </span>
                                               )}
                                               <div className="text-[9.5px] font-bold text-indigo-700 leading-none flex items-center justify-center gap-1 mt-0.5">
@@ -938,6 +952,10 @@ export default function ReviewerDashboard({
                                           const unit = units.find(u => u.id === entry.unitId);
                                           const trainer = users.find(u => u.id === entry.trainerId);
                                           const room = classrooms.find(c => c.id === entry.classroomId);
+                                          let resolvedGrp = entry.groupName;
+                                          if (!resolvedGrp && entry.groupId) {
+                                            resolvedGrp = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                          }
                                           return (
                                             <div key={entry.id || idx} className="text-left bg-slate-50/80 p-2 rounded-xl border border-slate-200/60">
                                               <div className="font-mono font-black text-slate-900 text-xs uppercase flex items-center justify-between">
@@ -946,9 +964,9 @@ export default function ReviewerDashboard({
                                                   {getRoomCode(room?.name || '?')}
                                                 </span>
                                               </div>
-                                              {entry.groupName && (
-                                                <span className="text-[8px] font-bold px-1 rounded bg-indigo-50 text-indigo-700 inline-block mt-0.5">
-                                                  {entry.groupName}
+                                              {resolvedGrp && (
+                                                <span className="text-[8px] font-bold px-1 rounded bg-indigo-50 text-indigo-700 inline-block mt-0.5 font-mono">
+                                                  {resolvedGrp}
                                                 </span>
                                               )}
                                               {unit?.name && (
@@ -1197,11 +1215,17 @@ export default function ReviewerDashboard({
                                             <span className="font-mono font-black text-slate-950 text-xs uppercase">
                                               {unit?.code || '?'}
                                             </span>
-                                            {entry.groupName && (
-                                              <span className="text-[8.5px] font-bold bg-indigo-100 text-indigo-800 px-1 py-0.2 rounded font-mono">
-                                                {entry.groupName}
-                                              </span>
-                                            )}
+                                            {(() => {
+                                              let grpName = entry.groupName;
+                                              if (!grpName && entry.groupId) {
+                                                grpName = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                              }
+                                              return grpName ? (
+                                                <span className="text-[8.5px] font-bold bg-indigo-100 text-indigo-800 px-1 py-0.2 rounded font-mono">
+                                                  {grpName}
+                                                </span>
+                                              ) : null;
+                                            })()}
                                           </div>
                                           {unit?.name && (
                                             <div className="text-[9.5px] text-slate-600 font-medium truncate">
@@ -1298,7 +1322,7 @@ export default function ReviewerDashboard({
                                   </span>
                                 </td>
                                 {timeSlots.map(ts => {
-                                  const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units);
+                                  const matchingEntries = getMatchingEntriesForCohortCell(timetableEntries, cohort, day, ts.id, units, courseGroups);
 
                                   return (
                                     <td key={ts.id} className="border border-slate-200 px-2 py-1.5 text-center align-middle w-1/5 min-w-[130px] print:border-slate-400">
@@ -1308,14 +1332,18 @@ export default function ReviewerDashboard({
                                             const unit = units.find(u => u.id === entry.unitId);
                                             const trainer = users.find(u => u.id === entry.trainerId);
                                             const room = classrooms.find(c => c.id === entry.classroomId);
+                                            let resolvedGrp = entry.groupName;
+                                            if (!resolvedGrp && entry.groupId) {
+                                              resolvedGrp = courseGroups.find(g => g.id === entry.groupId)?.name;
+                                            }
                                             return (
                                               <div key={entry.id || idx} className={`w-full ${idx > 0 ? 'border-t border-slate-200/70 pt-1' : ''}`}>
                                                 <div className="font-mono font-black text-slate-950 text-xs sm:text-[13px] uppercase">
                                                   {unit?.code || '?'}
                                                 </div>
-                                                {entry.groupName && (
-                                                  <span className="text-[7.5px] font-bold px-1 rounded bg-indigo-50 text-indigo-800">
-                                                    {entry.groupName}
+                                                {resolvedGrp && (
+                                                  <span className="text-[7.5px] font-bold px-1 rounded bg-indigo-50 text-indigo-800 font-mono">
+                                                    {resolvedGrp}
                                                   </span>
                                                 )}
                                                 <div className="text-[9.5px] font-bold text-indigo-700 flex items-center justify-center gap-1 mt-0.5">
@@ -1504,8 +1532,12 @@ export default function ReviewerDashboard({
                                 const c = courses.find(item => item.id === e.courseId);
                                 const code = c?.code || '?';
                                 const sem = getShortSemester(e.semesterName);
-                                const grp = e.groupName ? ` • ${e.groupName}` : '';
-                                levelSet.add(`${code} (${sem}${grp})`);
+                                let grp = e.groupName;
+                                if (!grp && e.groupId) {
+                                  grp = courseGroups.find(g => g.id === e.groupId)?.name;
+                                }
+                                const grpStr = grp ? ` • ${grp}` : '';
+                                levelSet.add(`${code} (${sem}${grpStr})`);
                               });
 
                               const levelBadges = Array.from(levelSet);

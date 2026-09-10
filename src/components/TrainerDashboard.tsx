@@ -91,6 +91,7 @@ export default function TrainerDashboard({
   courses,
   classrooms,
   units,
+  courseGroups = [],
   timetableEntries,
   trainerPreferences,
   academicSetting,
@@ -143,8 +144,12 @@ export default function TrainerDashboard({
       const c = courses.find(item => item.id === e.courseId);
       const code = c?.code || '?';
       const sem = getShortSemester(e.semesterName);
-      const grp = e.groupName ? ` - ${e.groupName}` : '';
-      levelSet.add(`${code} (${sem}${grp})`);
+      let grp = e.groupName;
+      if (!grp && e.groupId) {
+        grp = courseGroups.find(g => g.id === e.groupId)?.name;
+      }
+      const grpStr = grp ? ` • ${grp}` : '';
+      levelSet.add(`${code} (${sem}${grpStr})`);
     });
 
     const levelBadges = Array.from(levelSet);
@@ -609,11 +614,17 @@ export default function TrainerDashboard({
                                         <span className="font-mono font-black text-[15px] sm:text-[16px] uppercase bg-slate-100 border border-slate-200 py-0.5 px-1.5 rounded text-slate-950 print:bg-transparent print:border-none print:p-0 print:text-[21px] print:font-black print:tracking-tight print:leading-tight inline-block mr-1">
                                           {details.unit?.code}
                                         </span>
-                                        {details.entry.groupName && (
-                                          <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1 py-0.5 rounded inline-block mr-1 print:text-black print:border-none print:p-0">
-                                            ({details.entry.groupName})
-                                          </span>
-                                        )}
+                                        {(() => {
+                                          let grpName = details.entry.groupName;
+                                          if (!grpName && details.entry.groupId) {
+                                            grpName = courseGroups.find(g => g.id === details.entry.groupId)?.name;
+                                          }
+                                          return grpName ? (
+                                            <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1 py-0.5 rounded inline-block mr-1 print:text-black print:border-none print:p-0 font-mono">
+                                              ({grpName})
+                                            </span>
+                                          ) : null;
+                                        })()}
                                         {details.unit?.name && (
                                           <span className="text-[9.5px] font-medium text-slate-600 print:text-black print:text-[10px] print:font-semibold leading-tight break-words">
                                             ({details.unit.name})

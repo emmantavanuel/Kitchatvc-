@@ -1,24 +1,28 @@
 import React, { useState } from 'react';
 import { X, CheckCircle, GraduationCap, User, BookOpen, MapPin, Phone, Shield, FileText, ArrowRight, Sparkles } from 'lucide-react';
-import { AdmissionApplication } from '../types';
-import { WEBSITE_DEPARTMENTS, WebsiteCourse } from '../data/websiteData';
+import { AdmissionApplication, WebsiteDepartment, WebsiteCourse } from '../types';
+import { WEBSITE_DEPARTMENTS } from '../data/websiteData';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 
 interface TraineeRegistrationModalProps {
   initialCourseId?: string;
+  departments?: WebsiteDepartment[];
   onClose: () => void;
   onSubmitApplication: (app: AdmissionApplication) => void;
 }
 
 export default function TraineeRegistrationModal({ 
   initialCourseId, 
+  departments,
   onClose, 
   onSubmitApplication 
 }: TraineeRegistrationModalProps) {
+  const activeDepartments = departments && departments.length > 0 ? departments : WEBSITE_DEPARTMENTS;
+
   // Find selected course if initialCourseId provided
   const findInitialCourse = (): { course?: WebsiteCourse, deptId?: string } => {
     if (!initialCourseId) return {};
-    for (const d of WEBSITE_DEPARTMENTS) {
+    for (const d of activeDepartments) {
       const c = d.courses.find(item => item.id === initialCourseId);
       if (c) return { course: c, deptId: d.id };
     }
@@ -28,8 +32,8 @@ export default function TraineeRegistrationModal({
   const initialMatch = findInitialCourse();
 
   // Form states
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(initialMatch.deptId || 'ict');
-  const [selectedCourseId, setSelectedCourseId] = useState<string>(initialCourseId || 'cp_l6');
+  const [selectedDeptId, setSelectedDeptId] = useState<string>(initialMatch.deptId || (activeDepartments[0]?.id || 'ict'));
+  const [selectedCourseId, setSelectedCourseId] = useState<string>(initialCourseId || (activeDepartments[0]?.courses[0]?.id || 'cp_l6'));
   
   // Personal Details
   const [fullName, setFullName] = useState('');
@@ -66,7 +70,7 @@ export default function TraineeRegistrationModal({
   const [submittedApp, setSubmittedApp] = useState<AdmissionApplication | null>(null);
 
   // Available courses for selected department
-  const currentDept = WEBSITE_DEPARTMENTS.find(d => d.id === selectedDeptId);
+  const currentDept = activeDepartments.find(d => d.id === selectedDeptId);
   const availableCourses = currentDept ? currentDept.courses : [];
   const selectedCourse = currentDept?.courses.find(c => c.id === selectedCourseId);
 
@@ -233,14 +237,14 @@ export default function TraineeRegistrationModal({
                       value={selectedDeptId}
                       onChange={(e) => {
                         setSelectedDeptId(e.target.value);
-                        const d = WEBSITE_DEPARTMENTS.find(dept => dept.id === e.target.value);
+                        const d = activeDepartments.find(dept => dept.id === e.target.value);
                         if (d && d.courses.length > 0) {
                           setSelectedCourseId(d.courses[0].id);
                         }
                       }}
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-600 focus:outline-none"
                     >
-                      {WEBSITE_DEPARTMENTS.map(d => (
+                      {activeDepartments.map(d => (
                         <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
                     </select>

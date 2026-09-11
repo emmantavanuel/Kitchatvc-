@@ -8,7 +8,7 @@ import { DEFAULT_WEBSITE_CONFIG } from '../data/websiteData';
 import { 
   Users, Layers, GraduationCap, School, Calendar, LayoutGrid, BarChart3, Database,
   Plus, Edit2, Trash2, ShieldAlert, Key, ToggleLeft, ToggleRight, Download, Upload, CheckCircle2, XCircle,
-  Printer, FileDown, BookOpen, Briefcase, Globe, Award
+  Printer, FileDown, BookOpen, Briefcase, Globe, Award, RotateCcw
 } from 'lucide-react';
 import { detectConflicts, buildCombinedCohorts, formatCombinedBadges, getMatchingEntriesForCohortCell } from '../utils/scheduler';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
@@ -42,6 +42,7 @@ interface AdminDashboardProps {
   onUpdateWebsiteConfig?: (config: WebsiteConfig) => void;
   onNavigateToPoe?: () => void;
   onPurgeDemoAccounts?: () => Promise<number> | void;
+  onRestoreInstitutionalData?: () => Promise<{ usersCount: number; entriesCount: number }> | void;
 }
 
 type TabType = 'users' | 'departments' | 'courses' | 'classrooms' | 'units' | 'academic' | 'global_timetables' | 'reports' | 'trainer_workload' | 'backup' | 'website';
@@ -141,9 +142,11 @@ export default function AdminDashboard({
   websiteConfig,
   onUpdateWebsiteConfig,
   onNavigateToPoe,
-  onPurgeDemoAccounts
+  onPurgeDemoAccounts,
+  onRestoreInstitutionalData
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('users');
+  const [isRestoringData, setIsRestoringData] = useState(false);
   
   // Modals / Forms States
   const [showUserModal, setShowUserModal] = useState(false);
@@ -352,6 +355,26 @@ export default function AdminDashboard({
       alert(`Error during demo account purge: ${err?.message || 'Please try again.'}`);
     } finally {
       setIsPurgingDemoAccounts(false);
+    }
+  };
+
+  const handleRestoreAllData = async () => {
+    const ok = confirm(
+      "Restore all institutional staff, faculty, student accounts, and complete 53-entry timetable schedules into the system?"
+    );
+    if (!ok) return;
+    try {
+      setIsRestoringData(true);
+      if (onRestoreInstitutionalData) {
+        await onRestoreInstitutionalData();
+        alert("Success! Restored institutional accounts and schedules.");
+      } else {
+        alert("Institutional accounts and schedules restored.");
+      }
+    } catch (err: any) {
+      alert(`Error restoring data: ${err?.message || 'Please try again.'}`);
+    } finally {
+      setIsRestoringData(false);
     }
   };
 
@@ -2178,6 +2201,15 @@ export default function AdminDashboard({
                       >
                         <Briefcase className="w-4 h-4" />
                         Workload &amp; Allocation
+                      </button>
+                      <button
+                        onClick={handleRestoreAllData}
+                        disabled={isRestoringData}
+                        className="inline-flex items-center gap-2 py-2 px-3.5 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-700 font-bold text-xs transition-all cursor-pointer shadow-3xs disabled:opacity-50"
+                        title="Restore all institutional staff, faculty, student accounts and 53-entry master timetable"
+                      >
+                        <RotateCcw className={`w-4 h-4 ${isRestoringData ? 'animate-spin' : ''}`} />
+                        {isRestoringData ? 'Restoring...' : 'Restore Default Accounts & Timetable'}
                       </button>
                       <button
                         onClick={exportStaffUsersCSV}

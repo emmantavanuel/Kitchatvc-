@@ -605,7 +605,138 @@ export const COLLEGE_INFO = {
   ]
 };
 
-import { WebsiteConfig } from '../types';
+import { WebsiteConfig, WebsiteSliderSlide } from '../types';
+
+export const CURATED_SLIDER_PRESETS = [
+  {
+    title: 'Electrical & Solar Technology',
+    imageUrl: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1920&q=80',
+    category: 'Engineering',
+    badge: 'Electrical & Electronics Engineering • Level 4, 5, 6'
+  },
+  {
+    title: 'ICT & Computer Programming Lab',
+    imageUrl: 'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=1920&q=80',
+    category: 'Information Technology',
+    badge: 'Industry 4.0 Digital Hub • Software Engineering'
+  },
+  {
+    title: 'Industrial Welding & Metal Fabrication',
+    imageUrl: 'https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?auto=format&fit=crop&w=1920&q=80',
+    category: 'Mechanical',
+    badge: 'Practical CBET Skills • Arc & Gas Welding'
+  },
+  {
+    title: 'Building Technology & Construction',
+    imageUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=1920&q=80',
+    category: 'Civil & Building',
+    badge: 'Architecture, Surveying & Construction'
+  },
+  {
+    title: 'Graduation & Trainee Achievement',
+    imageUrl: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1920&q=80',
+    category: 'Campus Life',
+    badge: 'Certified TVET-CDACC & KNEC Graduates'
+  },
+  {
+    title: 'Automotive Mechanics & Diagnostics',
+    imageUrl: 'https://images.unsplash.com/photo-1486006920555-c77dce18193b?auto=format&fit=crop&w=1920&q=80',
+    category: 'Automotive',
+    badge: 'Motor Vehicle Mechanics & Auto Electrician'
+  },
+  {
+    title: 'Modern Library & Research Centre',
+    imageUrl: 'https://images.unsplash.com/photo-1521587760476-6c12a4b040da?auto=format&fit=crop&w=1920&q=80',
+    category: 'Academics',
+    badge: 'Digital E-Learning & Physical Technical Resources'
+  },
+  {
+    title: 'Agricultural Greenhouse & Farming Innovation',
+    imageUrl: 'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&w=1920&q=80',
+    category: 'Agriculture',
+    badge: 'Agri-Business & Smart Greenhouse Technologies'
+  },
+  {
+    title: 'Hospitality & Food Production Kitchen',
+    imageUrl: 'https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&w=1920&q=80',
+    category: 'Hospitality',
+    badge: 'Culinary Arts & Institutional Catering'
+  },
+  {
+    title: 'Fashion Design & Garment Making Studio',
+    imageUrl: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?auto=format&fit=crop&w=1920&q=80',
+    category: 'Creative Arts',
+    badge: 'Fashion Design, Tailoring & Textile Craft'
+  }
+];
+
+export const DEFAULT_WEBSITE_SLIDES: WebsiteSliderSlide[] = [
+  {
+    id: 'slide_1',
+    imageUrl: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1920&q=80',
+    badge: 'Ministry of Education • TVETA Registered • CDACC & KNEC',
+    title: 'Empowering Hands, Transforming Minds, Building Futures',
+    subtitle: 'Government-supported TVET institution offering modern competency-based modular training (CBET), industry apprenticeships, and direct pathways to self-reliance.',
+    buttonText: 'Apply Online (TVET Admission)',
+    buttonAction: 'register',
+    secondaryButtonText: 'Explore Courses Offered',
+    secondaryButtonAction: 'courses',
+    isActive: true,
+    order: 1
+  },
+  {
+    id: 'slide_2',
+    imageUrl: 'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=1920&q=80',
+    badge: 'Industry 4.0 Digital Hub • Level 4, 5 & 6',
+    title: 'Master Cutting-Edge Software & ICT Technologies',
+    subtitle: 'Equipping trainees with high-demand digital skills in computer programming, network infrastructure, cybersecurity, and mobile hardware systems.',
+    buttonText: 'Register for ICT Courses',
+    buttonAction: 'register',
+    secondaryButtonText: 'View Departments',
+    secondaryButtonAction: 'departments',
+    isActive: true,
+    order: 2
+  },
+  {
+    id: 'slide_3',
+    imageUrl: 'https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?auto=format&fit=crop&w=1920&q=80',
+    badge: 'Practical Competency-Based Education (CBET)',
+    title: 'Industrial Mechanical & Automotive Engineering',
+    subtitle: 'State-of-the-art heavy workshops, CNC fabrication, arc welding, and automotive diagnostics preparing you for direct employment and enterprise creation.',
+    buttonText: 'Explore Engineering Courses',
+    buttonAction: 'courses',
+    secondaryButtonText: 'Check Admission Status',
+    secondaryButtonAction: 'status',
+    isActive: true,
+    order: 3
+  },
+  {
+    id: 'slide_4',
+    imageUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?auto=format&fit=crop&w=1920&q=80',
+    badge: 'Direct Admissions & KUCCPS Placement',
+    title: 'Build Kenya\'s Infrastructure with Professional Craftsmanship',
+    subtitle: 'Comprehensive training in architectural drafting, structural masonry, plumbing, electrical installation, and land surveying.',
+    buttonText: 'Apply for September Intake',
+    buttonAction: 'register',
+    secondaryButtonText: 'Contact Admissions',
+    secondaryButtonAction: 'contact',
+    isActive: true,
+    order: 4
+  },
+  {
+    id: 'slide_5',
+    imageUrl: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1920&q=80',
+    badge: 'HELB & HEF Government Capitation Supported',
+    title: 'Affordable Technical Education with Maximum Employability',
+    subtitle: 'Join over 1,200 trainees at Kitutu Chache TVC with subsidized government tuition, modern hostels, and guaranteed attachment placements.',
+    buttonText: 'Apply Now (Direct Intake)',
+    buttonAction: 'register',
+    secondaryButtonText: 'Browse All Courses',
+    secondaryButtonAction: 'courses',
+    isActive: true,
+    order: 5
+  }
+];
 
 export const DEFAULT_WEBSITE_CONFIG: WebsiteConfig = {
   collegeName: 'KITUTU CHACHE TECHNICAL AND VOCATIONAL COLLEGE',
@@ -619,6 +750,12 @@ export const DEFAULT_WEBSITE_CONFIG: WebsiteConfig = {
   workingHours: 'Monday - Friday: 8:00 AM - 5:00 PM',
   intakeAnnouncement: 'September 2026 Intake Ongoing. Secure your opportunity in Engineering, ICT, Agriculture & Business!',
   
+  // Hero Carousel Slides
+  slides: DEFAULT_WEBSITE_SLIDES,
+
+  // Dynamic Academic Departments & Courses Offered
+  departments: WEBSITE_DEPARTMENTS,
+
   heroHeadline: 'Empowering Hands, Transforming Minds, Building Futures',
   heroSubheadline: 'Government-supported TVET institution offering modern competency-based modular training (CBET), industry apprenticeships, and direct pathways to self-reliance.',
   heroBadge: 'Ministry of Education • TVETA Registered • CDACC & KNEC Accredited',

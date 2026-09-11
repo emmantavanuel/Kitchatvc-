@@ -140,6 +140,7 @@ export const INITIAL_USERS: User[] = [
   { id: 'user_hod_be', username: 'hod_be', password: 'password', role: 'hod', name: 'Eng. Faith Bosire (HOD Building & Civil / Plumbing)', departmentId: 'dept_be', isActive: true, isDemo: true },
   { id: 'user_trainer', username: 'trainer', password: 'password', role: 'trainer', name: 'Mr. Evans Kemboi (Trainer)', departmentId: 'dept_cs', isActive: true, pfNumber: 'PF-2024-042', isDemo: true },
   { id: 'user_trainer_be', username: 'trainer_be', password: 'password', role: 'trainer', name: 'Mr. Dennis Mogaka (Plumbing Trainer)', departmentId: 'dept_be', isActive: true, pfNumber: 'PF-2023-018', isDemo: true },
+  { id: 'user_trainer_ee', username: 'trainer_ee', password: 'password', role: 'trainer', name: 'Eng. Peter Kiprono (Electrical Trainer)', departmentId: 'dept_ee', isActive: true, pfNumber: 'PF-2023-089', isDemo: true },
   { id: 'user_manager', username: 'manager', password: 'password', role: 'manager', name: 'Academic Manager (Timetable & Verification)', isActive: true, isDemo: true },
   { id: 'user_review', username: 'review', password: 'password', role: 'review', name: 'Academic Review Officer (Timetable Review & Audit)', isActive: true, isDemo: true },
   { id: 'user_student1', username: 'KTVC/DICT/2026J/001', password: 'password', role: 'student', name: 'Emmanuel Omondi (Trainee)', isActive: true, code: 'KTVC/DICT/2026J/001', isDemo: true },
@@ -158,7 +159,95 @@ export const TIME_SLOTS = [
 // Seed trainer preferences (some unavailable slots and some preferred slots)
 export const INITIAL_TRAINER_PREFERENCES: TrainerSlotPreference[] = [];
 
-export const INITIAL_TIMETABLE_ENTRIES: TimetableEntry[] = [];
+export const INITIAL_TIMETABLE_ENTRIES: TimetableEntry[] = [
+  // MONDAY
+  // 08:00 AM - 10:00 AM (Slot 1)
+  { id: 'sch_mon_1', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 1', unitId: 'unit_prog', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Monday', slotId: 1, isPublished: true },
+  { id: 'sch_mon_2', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 1', unitId: 'unit_elec_princ', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Monday', slotId: 1, isPublished: true },
+  { id: 'sch_mon_3', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 1', unitId: 'unit_surveying', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Monday', slotId: 1, isPublished: true },
+  { id: 'sch_mon_4', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_pipe_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Monday', slotId: 1, isPublished: true },
+
+  // 10:00 AM - 12:00 PM (Slot 2 - 10:00 AM Schedule Slot)
+  { id: 'sch_mon_5', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 1', unitId: 'unit_prog', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Monday', slotId: 2, isPublished: true },
+  { id: 'sch_mon_6', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 1', unitId: 'unit_db', trainerId: 'user_hod', classroomId: 'room_lab2', day: 'Monday', slotId: 2, isPublished: true },
+  { id: 'sch_mon_7', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 1', unitId: 'unit_elec_princ', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Monday', slotId: 2, isPublished: true },
+  { id: 'sch_mon_8', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 1', unitId: 'unit_surveying', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Monday', slotId: 2, isPublished: true },
+  { id: 'sch_mon_9', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_pipe_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Monday', slotId: 2, isPublished: true },
+
+  // 01:00 PM - 03:00 PM (Slot 3)
+  { id: 'sch_mon_10', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 1', unitId: 'unit_os', trainerId: 'user_hod', classroomId: 'room_101', day: 'Monday', slotId: 3, isPublished: true },
+  { id: 'sch_mon_11', departmentId: 'dept_ee', courseId: 'course_cei', semesterName: 'Module 1', unitId: 'unit_wiring', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Monday', slotId: 3, isPublished: true },
+  { id: 'sch_mon_12', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 1', unitId: 'unit_drawing', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Monday', slotId: 3, isPublished: true },
+  { id: 'sch_mon_13', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_math_l3', trainerId: 'user_trainer_be', classroomId: 'room_102', day: 'Monday', slotId: 3, isPublished: true },
+
+  // 03:00 PM - 05:00 PM (Slot 4)
+  { id: 'sch_mon_14', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 1', unitId: 'unit_algo', trainerId: 'user_trainer', classroomId: 'room_101', day: 'Monday', slotId: 4, isPublished: true },
+  { id: 'sch_mon_15', departmentId: 'dept_ee', courseId: 'course_cei', semesterName: 'Module 1', unitId: 'unit_wiring', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Monday', slotId: 4, isPublished: true },
+  { id: 'sch_mon_16', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_comm_l3', trainerId: 'user_trainer_be', classroomId: 'room_102', day: 'Monday', slotId: 4, isPublished: true },
+
+  // TUESDAY
+  // 08:00 AM - 10:00 AM (Slot 1)
+  { id: 'sch_tue_1', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 2', unitId: 'unit_net_ict', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Tuesday', slotId: 1, isPublished: true },
+  { id: 'sch_tue_2', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 2', unitId: 'unit_elec_mach', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Tuesday', slotId: 1, isPublished: true },
+  { id: 'sch_tue_3', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 2', unitId: 'unit_structures', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Tuesday', slotId: 1, isPublished: true },
+
+  // 10:00 AM - 12:00 PM (Slot 2 - 10:00 AM Schedule Slot)
+  { id: 'sch_tue_4', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 2', unitId: 'unit_net_ict', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Tuesday', slotId: 2, isPublished: true },
+  { id: 'sch_tue_5', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 2', unitId: 'unit_fullstack', trainerId: 'user_hod', classroomId: 'room_lab2', day: 'Tuesday', slotId: 2, isPublished: true },
+  { id: 'sch_tue_6', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 2', unitId: 'unit_elec_mach', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Tuesday', slotId: 2, isPublished: true },
+  { id: 'sch_tue_7', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 2', unitId: 'unit_structures', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Tuesday', slotId: 2, isPublished: true },
+  { id: 'sch_tue_8', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_ohs_l3', trainerId: 'user_trainer_be', classroomId: 'room_102', day: 'Tuesday', slotId: 2, isPublished: true },
+
+  // 01:00 PM - 03:00 PM (Slot 3)
+  { id: 'sch_tue_9', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 2', unitId: 'unit_sad', trainerId: 'user_hod', classroomId: 'room_101', day: 'Tuesday', slotId: 3, isPublished: true },
+  { id: 'sch_tue_10', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 2', unitId: 'unit_telecom', trainerId: 'user_trainer_ee', classroomId: 'room_102', day: 'Tuesday', slotId: 3, isPublished: true },
+  { id: 'sch_tue_11', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 2', unitId: 'unit_concrete', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Tuesday', slotId: 3, isPublished: true },
+  { id: 'sch_tue_12', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_ent_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Tuesday', slotId: 3, isPublished: true },
+
+  // 03:00 PM - 05:00 PM (Slot 4)
+  { id: 'sch_tue_13', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 2', unitId: 'unit_oop', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Tuesday', slotId: 4, isPublished: true },
+  { id: 'sch_tue_14', departmentId: 'dept_ee', courseId: 'course_cei', semesterName: 'Module 1', unitId: 'unit_solar', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Tuesday', slotId: 4, isPublished: true },
+
+  // WEDNESDAY
+  // 08:00 AM - 10:00 AM (Slot 1)
+  { id: 'sch_wed_1', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 3', unitId: 'unit_web', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Wednesday', slotId: 1, isPublished: true },
+  { id: 'sch_wed_2', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 3', unitId: 'unit_power', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Wednesday', slotId: 1, isPublished: true },
+  { id: 'sch_wed_3', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 3', unitId: 'unit_highways', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Wednesday', slotId: 1, isPublished: true },
+
+  // 10:00 AM - 12:00 PM (Slot 2 - 10:00 AM Schedule Slot)
+  { id: 'sch_wed_4', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 3', unitId: 'unit_web', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Wednesday', slotId: 2, isPublished: true },
+  { id: 'sch_wed_5', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 3', unitId: 'unit_dcs_proj', trainerId: 'user_hod', classroomId: 'room_lab2', day: 'Wednesday', slotId: 2, isPublished: true },
+  { id: 'sch_wed_6', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 3', unitId: 'unit_power', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Wednesday', slotId: 2, isPublished: true },
+  { id: 'sch_wed_7', departmentId: 'dept_be', courseId: 'course_dce', semesterName: 'Module 3', unitId: 'unit_highways', trainerId: 'user_hod_be', classroomId: 'room_be_drawing', day: 'Wednesday', slotId: 2, isPublished: true },
+
+  // 01:00 PM - 03:00 PM (Slot 3)
+  { id: 'sch_wed_8', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 3', unitId: 'unit_proj_ict', trainerId: 'user_hod', classroomId: 'room_lab1', day: 'Wednesday', slotId: 3, isPublished: true },
+  { id: 'sch_wed_9', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 3', unitId: 'unit_cloud', trainerId: 'user_trainer', classroomId: 'room_lab2', day: 'Wednesday', slotId: 3, isPublished: true },
+  { id: 'sch_wed_10', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 1', unitId: 'unit_elec_princ', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Wednesday', slotId: 3, isPublished: true },
+  { id: 'sch_wed_11', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_pipe_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Wednesday', slotId: 3, isPublished: true },
+
+  // THURSDAY
+  // 08:00 AM - 10:00 AM (Slot 1)
+  { id: 'sch_thu_1', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 1', unitId: 'unit_math', trainerId: 'user_trainer', classroomId: 'room_101', day: 'Thursday', slotId: 1, isPublished: true },
+  { id: 'sch_thu_2', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 1', unitId: 'unit_dig_elec', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Thursday', slotId: 1, isPublished: true },
+  { id: 'sch_thu_3', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_pipe_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Thursday', slotId: 1, isPublished: true },
+
+  // 10:00 AM - 12:00 PM (Slot 2 - 10:00 AM Schedule Slot)
+  { id: 'sch_thu_4', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 2', unitId: 'unit_oop', trainerId: 'user_trainer', classroomId: 'room_lab1', day: 'Thursday', slotId: 2, isPublished: true },
+  { id: 'sch_thu_5', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 1', unitId: 'unit_math', trainerId: 'user_hod', classroomId: 'room_101', day: 'Thursday', slotId: 2, isPublished: true },
+  { id: 'sch_thu_6', departmentId: 'dept_ee', courseId: 'course_dee', semesterName: 'Module 1', unitId: 'unit_dig_elec', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Thursday', slotId: 2, isPublished: true },
+  { id: 'sch_thu_7', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_ohs_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Thursday', slotId: 2, isPublished: true },
+
+  // FRIDAY
+  // 08:00 AM - 10:00 AM (Slot 1)
+  { id: 'sch_fri_1', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 1', unitId: 'unit_db', trainerId: 'user_hod', classroomId: 'room_lab1', day: 'Friday', slotId: 1, isPublished: true },
+  { id: 'sch_fri_2', departmentId: 'dept_ee', courseId: 'course_cei', semesterName: 'Module 1', unitId: 'unit_solar', trainerId: 'user_trainer_ee', classroomId: 'room_ee_workshop', day: 'Friday', slotId: 1, isPublished: true },
+
+  // 10:00 AM - 12:00 PM (Slot 2 - 10:00 AM Schedule Slot)
+  { id: 'sch_fri_3', departmentId: 'dept_cs', courseId: 'course_dcs', semesterName: 'Module 1', unitId: 'unit_db', trainerId: 'user_hod', classroomId: 'room_lab1', day: 'Friday', slotId: 2, isPublished: true },
+  { id: 'sch_fri_4', departmentId: 'dept_cs', courseId: 'course_dict', semesterName: 'Module 1', unitId: 'unit_os', trainerId: 'user_trainer', classroomId: 'room_101', day: 'Friday', slotId: 2, isPublished: true },
+  { id: 'sch_fri_5', departmentId: 'dept_be', courseId: 'course_plm_l3', semesterName: 'Module 1', unitId: 'unit_plm_pipe_l3', trainerId: 'user_trainer_be', classroomId: 'room_plumbing_ws', day: 'Friday', slotId: 2, isPublished: true }
+];
 
 export const DEFAULT_ACADEMIC_SETTING: AcademicSetting = {
   academicYear: '2026/2027',

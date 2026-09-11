@@ -7,17 +7,21 @@ import {
   Globe, Users, Megaphone, Building2, Sparkles, Plus, Trash2, Edit2, 
   Upload, Image as ImageIcon, Check, X, Eye, AlertCircle, Save, 
   ChevronRight, Phone, Mail, MapPin, Calendar, ExternalLink, RefreshCw,
-  FileText, FileDown, UploadCloud, FolderDown, Tag, Link2, ShieldCheck, Clock
+  FileText, FileDown, UploadCloud, FolderDown, Tag, Link2, ShieldCheck, Clock,
+  Layers, GraduationCap
 } from 'lucide-react';
 import { uploadMediaFile, saveWebsiteConfigDirectly } from '../lib/firebase';
 import WebsiteDocumentsTab from './website/WebsiteDocumentsTab';
+import WebsiteSliderTab from './website/WebsiteSliderTab';
+import WebsiteCoursesTab from './website/WebsiteCoursesTab';
+import { DEFAULT_WEBSITE_SLIDES, WEBSITE_DEPARTMENTS } from '../data/websiteData';
 
 interface WebsiteEditorProps {
   config: WebsiteConfig;
   onSaveConfig: (updated: WebsiteConfig) => void;
   onClose?: () => void;
   currentUser?: User;
-  initialTab?: 'management' | 'adverts' | 'identity' | 'hero' | 'stats' | 'documents';
+  initialTab?: 'management' | 'adverts' | 'identity' | 'hero' | 'stats' | 'documents' | 'slider' | 'courses';
 }
 
 export default function WebsiteEditor({
@@ -34,10 +38,12 @@ export default function WebsiteEditor({
     coreValues: config.coreValues || [],
     stats: config.stats || [],
     downloads: config.downloads || [],
-    tenders: config.tenders || []
+    tenders: config.tenders || [],
+    slides: config.slides && config.slides.length > 0 ? config.slides : DEFAULT_WEBSITE_SLIDES,
+    departments: config.departments && config.departments.length > 0 ? config.departments : WEBSITE_DEPARTMENTS
   }));
 
-  const [activeTab, setActiveTab] = useState<'management' | 'adverts' | 'identity' | 'hero' | 'stats' | 'documents'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'management' | 'adverts' | 'identity' | 'hero' | 'stats' | 'documents' | 'slider' | 'courses'>(initialTab);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
   // Management sub-states
@@ -347,6 +353,36 @@ export default function WebsiteEditor({
 
       {/* Editor Navigation Tabs */}
       <div className="bg-[#FAF8F5] border-b border-[#EADBCA] px-6 sm:px-8 flex items-center gap-2 overflow-x-auto py-2.5">
+        <button
+          onClick={() => setActiveTab('slider')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeTab === 'slider'
+              ? 'bg-[#281A10] text-white shadow-xs'
+              : 'text-[#453629] hover:bg-[#EADBCA]/50'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-[#BA8D5C]" />
+          <span>Front Page Slider & Images</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-[#C29563] text-white rounded-full font-bold">
+            {(formData.slides?.length || 0)}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('courses')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeTab === 'courses'
+              ? 'bg-[#281A10] text-white shadow-xs'
+              : 'text-[#453629] hover:bg-[#EADBCA]/50'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4 text-[#BA8D5C]" />
+          <span>Courses Offered & Depts</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-[#C29563] text-white rounded-full font-bold">
+            {(formData.departments?.reduce((acc, d) => acc + d.courses.length, 0) || 0)}
+          </span>
+        </button>
+
         <button
           onClick={() => setActiveTab('management')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap cursor-pointer ${
@@ -1086,6 +1122,28 @@ export default function WebsiteEditor({
             onUploadMediaFile={handleUploadDocumentFile}
             isUploadingMedia={isUploadingMedia}
             uploadProgressMsg={uploadProgressMsg}
+          />
+        )}
+
+        {/* ====================================================================
+            TAB 7: HERO CAROUSEL SLIDER & IMAGES
+        ==================================================================== */}
+        {activeTab === 'slider' && (
+          <WebsiteSliderTab
+            formData={formData}
+            setFormData={setFormData}
+            onSaveAll={handleSaveAll}
+          />
+        )}
+
+        {/* ====================================================================
+            TAB 8: COURSES & ACADEMIC DEPARTMENTS OFFERED
+        ==================================================================== */}
+        {activeTab === 'courses' && (
+          <WebsiteCoursesTab
+            formData={formData}
+            setFormData={setFormData}
+            onSaveAll={handleSaveAll}
           />
         )}
       </div>

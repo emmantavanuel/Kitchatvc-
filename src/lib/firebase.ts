@@ -358,6 +358,52 @@ export async function saveApplicationState(payload: any): Promise<{
 }
 
 /**
+ * Dedicated atomic delete for a timetable slot (or multiple linked slots)
+ */
+export async function deleteSlotDirectly(idOrIds: string | string[]): Promise<{ success: boolean; timetableEntries?: any[] }> {
+  const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+  try {
+    const res = await fetch('/api/timetable/slot/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (e) {
+    console.warn('[Slot Delete] Direct API notice:', e);
+  }
+  return { success: false };
+}
+
+/**
+ * Dedicated atomic save / update for a timetable slot
+ */
+export async function saveSlotDirectly(
+  entryOrEntries: any | any[],
+  units?: any[],
+  courseGroups?: any[]
+): Promise<{ success: boolean; timetableEntries?: any[] }> {
+  const entries = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
+  try {
+    const res = await fetch('/api/timetable/slot/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries, units, courseGroups })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (e) {
+    console.warn('[Slot Save] Direct API notice:', e);
+  }
+  return { success: false };
+}
+
+/**
  * Dedicated instant save for Timetable entries to ensure zero latency and full overwrite capability
  */
 export async function saveTimetableDirectly(timetableEntries: any[], units?: any[], courseGroups?: any[], allowOverwrite: boolean = true) {
@@ -585,4 +631,29 @@ export async function purgeDemoAccountsDirectly(): Promise<{
   }
   return { success: false, purgedCount: 0, remainingCount: 0, users: [] };
 }
+
+/**
+ * Dedicated call to restore all institutional staff, faculty, student accounts and complete timetable schedules
+ */
+export async function restoreInstitutionalDataDirectly(): Promise<{
+  success: boolean;
+  usersCount: number;
+  entriesCount: number;
+  state?: any;
+}> {
+  try {
+    const res = await fetch('/api/restore-institutional-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (e) {
+    console.warn('[Restore] API restore notice:', e);
+  }
+  return { success: false, usersCount: 0, entriesCount: 0 };
+}
+
 

@@ -4,17 +4,18 @@ import {
   FileText, Award, CheckCircle, ArrowRight, ExternalLink, Calendar, 
   Search, Shield, Users, Building, Bell, Sparkles, Clock, Compass, Menu, X,
   Send, MessageSquare, HelpCircle, Edit2, Plus, Upload, Megaphone, Globe,
-  Image as ImageIcon
+  Image as ImageIcon, Layers
 } from 'lucide-react';
 import { 
   WEBSITE_DEPARTMENTS, COLLEGE_INFO, WebsiteCourse, WebsiteDepartment,
-  DEFAULT_WEBSITE_CONFIG 
+  DEFAULT_WEBSITE_CONFIG, DEFAULT_WEBSITE_SLIDES 
 } from '../data/websiteData';
 import { AdmissionApplication, User, Department, WebsiteConfig, WebsiteManager, WebsiteAdvert } from '../types';
 import TraineeRegistrationModal from './TraineeRegistrationModal';
 import ApplicationStatusModal from './ApplicationStatusModal';
 import AdmissionLetterModal from './AdmissionLetterModal';
 import WebsiteEditor from './WebsiteEditor';
+import WebsiteHeroSlider from './website/WebsiteHeroSlider';
 import kitchaLogo from '../assets/images/kitcha_tvc_logo.jpg';
 import { compressImageFile } from '../lib/imageUtils';
 
@@ -47,7 +48,7 @@ export default function WebsiteFrontPage({
   
   // Super Admin CMS Modal state
   const [isCmsModalOpen, setIsCmsModalOpen] = useState(false);
-  const [cmsInitialTab, setCmsInitialTab] = useState<'identity' | 'hero' | 'management' | 'adverts' | 'stats' | 'documents'>('management');
+  const [cmsInitialTab, setCmsInitialTab] = useState<'identity' | 'hero' | 'management' | 'adverts' | 'stats' | 'documents' | 'slider' | 'courses'>('slider');
 
   // Quick Direct Manager Portrait Upload
   const quickUploadFileInputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +134,18 @@ export default function WebsiteFrontPage({
     }, 4000);
   };
 
-  const currentDepartment = WEBSITE_DEPARTMENTS.find(d => d.id === selectedDeptId) || WEBSITE_DEPARTMENTS[0];
+  // Derive dynamic departments from websiteConfig (CMS managed) with fallback to default data
+  const effectiveDepartments = (websiteConfig.departments && websiteConfig.departments.length > 0)
+    ? websiteConfig.departments
+    : (DEFAULT_WEBSITE_CONFIG.departments && DEFAULT_WEBSITE_CONFIG.departments.length > 0 ? DEFAULT_WEBSITE_CONFIG.departments : WEBSITE_DEPARTMENTS);
+
+  const currentDepartment = effectiveDepartments.find(d => d.id === selectedDeptId) || effectiveDepartments[0] || {
+    id: 'general',
+    name: 'General Academic Department',
+    code: 'KTVC',
+    description: 'Technical and vocational training programmes.',
+    courses: []
+  };
 
   const handleApplyCourse = (courseId: string) => {
     setRegisterCourseId(courseId);
@@ -183,13 +195,37 @@ export default function WebsiteFrontPage({
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => {
+                  setCmsInitialTab('slider');
+                  setIsCmsModalOpen(true);
+                }}
+                className="px-2.5 py-1 bg-[#C29563]/30 hover:bg-[#C29563]/50 text-white rounded-md border border-[#E2BE8D]/60 font-bold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Manage front page banner slider images & text"
+              >
+                <Layers className="w-3.5 h-3.5 text-[#E2BE8D]" />
+                <span>+ Slider & Images</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setCmsInitialTab('courses');
+                  setIsCmsModalOpen(true);
+                }}
+                className="px-2.5 py-1 bg-[#C29563]/30 hover:bg-[#C29563]/50 text-white rounded-md border border-[#E2BE8D]/60 font-bold text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Modify courses offered, entry grades, exam bodies & departments"
+              >
+                <GraduationCap className="w-3.5 h-3.5 text-[#E2BE8D]" />
+                <span>+ Modify Courses</span>
+              </button>
+
+              <button
+                onClick={() => {
                   setCmsInitialTab('management');
                   setIsCmsModalOpen(true);
                 }}
                 className="px-2.5 py-1 bg-[#C29563]/25 hover:bg-[#C29563]/40 text-[#F5E6D5] hover:text-white rounded-md border border-[#C29563]/40 font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
               >
                 <Users className="w-3.5 h-3.5 text-[#C29563]" />
-                <span>+ Add / Manage Leadership</span>
+                <span>+ Leadership</span>
               </button>
 
               <button
@@ -205,13 +241,13 @@ export default function WebsiteFrontPage({
 
               <button
                 onClick={() => {
-                  setCmsInitialTab('identity');
+                  setCmsInitialTab('slider');
                   setIsCmsModalOpen(true);
                 }}
                 className="px-3 py-1 bg-[#C29563] hover:bg-[#B28452] text-white font-bold rounded-md text-[11px] flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
               >
                 <Edit2 className="w-3.5 h-3.5" />
-                <span>Open Website CMS Editor</span>
+                <span>Open Website CMS</span>
               </button>
             </div>
           </div>
@@ -550,71 +586,25 @@ export default function WebsiteFrontPage({
         </nav>
       </header>
 
-      {/* 3. HERO BANNER (Light, Luminous Honey-Brown & Ivory Gradient) */}
-      <div className="relative bg-gradient-to-br from-[#FAF5EE] via-[#F4EBE0] to-[#E9D7C2] text-[#2C1F15] border-b border-[#E2CEB8] overflow-hidden">
-        {/* Subtle patterned overlay simulating hands-on college trainees */}
-        <div 
-          className="absolute inset-0 opacity-15 bg-cover bg-center mix-blend-multiply scale-105 transform"
-          style={{
-            backgroundImage: `url('https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?auto=format&fit=crop&w=1600&q=80')`
+      {/* 3. HERO SLIDER BANNER (Interactive Award-Winning Slider) */}
+      {activeTab === 'home' && (
+        <WebsiteHeroSlider
+          slides={websiteConfig.slides && websiteConfig.slides.length > 0 ? websiteConfig.slides : DEFAULT_WEBSITE_SLIDES}
+          onApply={() => { setRegisterCourseId(undefined); setIsRegisterOpen(true); }}
+          onExploreCourses={scrollToCourses}
+          onCheckStatus={() => setIsStatusOpen(true)}
+          onNavigateTab={(tab) => {
+            if (tab === 'courses') scrollToCourses();
+            else setActiveTab(tab as any);
           }}
+          currentUser={currentUser}
+          onOpenSliderCMS={() => {
+            setCmsInitialTab('slider');
+            setIsCmsModalOpen(true);
+          }}
+          announcementText={COLLEGE_INFO.intakeAnnouncement}
         />
-
-        <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-20 flex flex-col items-center text-center">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#C29563]/20 border border-[#C29563]/40 text-[#7D5325] font-black text-xs sm:text-sm tracking-wider uppercase mb-4 backdrop-blur-2xs">
-            <Sparkles className="w-4 h-4 text-[#C29563]" />
-            Empowering Youth with Practical Competency-Based Skills (CBET)
-          </span>
-
-          <h2 className="text-2xl sm:text-4xl md:text-5xl font-black tracking-tight text-[#281A10] max-w-4xl leading-tight">
-            Build Your Technical Career at Kitutu Chache TVC
-          </h2>
-
-          <p className="mt-4 text-sm sm:text-base text-[#4F3C2C] max-w-2xl leading-relaxed font-medium">
-            Hands-on technical training, certified by TVET-CDACC and KNEC. Direct admissions and KUCCPS government-sponsored placements available across all departments.
-          </p>
-
-          {/* Action CTAs */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-            <button
-              onClick={() => { setRegisterCourseId(undefined); setIsRegisterOpen(true); }}
-              className="px-6 py-3.5 bg-[#C29563] hover:bg-[#B28452] text-white font-black text-sm rounded-xl transition-all shadow-md flex items-center gap-2 active:scale-95"
-            >
-              <GraduationCap className="w-5 h-5 text-white" />
-              Apply Online (TVET Admission Form)
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={scrollToCourses}
-              className="px-6 py-3.5 bg-white hover:bg-[#F9F5EF] text-[#4F3C2C] font-bold text-sm rounded-xl transition-colors border border-[#D9B996] shadow-2xs flex items-center gap-2 active:scale-95"
-            >
-              <BookOpen className="w-4 h-4 text-[#BA8D5C]" />
-              View Courses Offered
-            </button>
-
-            <button
-              onClick={() => setIsStatusOpen(true)}
-              className="px-6 py-3.5 bg-[#EBD4BE] hover:bg-[#DFC5AB] text-[#3D2612] font-bold text-sm rounded-xl transition-colors border border-[#CDB194] flex items-center gap-2 active:scale-95"
-            >
-              <Search className="w-4 h-4 text-[#7D5325]" />
-              Check Status
-            </button>
-          </div>
-        </div>
-
-        {/* Ongoing Intake Announcement Ribbon (Light Brown with Sharp Contrast) */}
-        <div className="relative z-20 bg-[#DEC8B2] text-[#3D2713] py-2.5 px-4 text-center font-bold text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 border-y border-[#CBB39B] shadow-2xs">
-          <span className="w-2 h-2 rounded-full bg-[#8F6335] animate-ping inline-block" />
-          <span>{COLLEGE_INFO.intakeAnnouncement}</span>
-          <button 
-            onClick={() => { setRegisterCourseId(undefined); setIsRegisterOpen(true); }}
-            className="underline ml-2 text-[#7D5325] hover:text-[#523414] transition-colors text-xs font-black uppercase tracking-wider"
-          >
-            Apply Now &rarr;
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* 4. MAIN CONTENT AREA */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-10">
@@ -623,13 +613,29 @@ export default function WebsiteFrontPage({
         ========================================================================= */}
         {(activeTab === 'home' || activeTab === 'courses') && (
           <section id="courses-section" className="space-y-8">
-            <div className="text-center sm:text-left border-b border-[#EDE2D5] pb-4">
-              <h2 className="text-2xl sm:text-3xl font-black text-[#281A10] tracking-tight uppercase underline decoration-[#C29563] decoration-4 underline-offset-8">
-                Courses Offered:
-              </h2>
-              <p className="text-xs sm:text-sm text-[#544030] mt-2 font-medium">
-                Select an academic department from the left menu to browse entry grades, assessment bodies, and intake periods.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EDE2D5] pb-4">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-black text-[#281A10] tracking-tight uppercase underline decoration-[#C29563] decoration-4 underline-offset-8">
+                  Courses Offered:
+                </h2>
+                <p className="text-xs sm:text-sm text-[#544030] mt-2 font-medium">
+                  Select an academic department from the left menu to browse entry grades, assessment bodies, and intake periods.
+                </p>
+              </div>
+
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => {
+                    setCmsInitialTab('courses');
+                    setIsCmsModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white font-black text-xs rounded-xl transition-all shadow-xs flex items-center gap-2 cursor-pointer self-start sm:self-center shrink-0 active:scale-95"
+                  title="Modify courses, entry grades, exam bodies, or add new courses"
+                >
+                  <Edit2 className="w-4 h-4 text-white" />
+                  <span>Admin: Modify Courses</span>
+                </button>
+              )}
             </div>
 
             {/* Two-column layout */}
@@ -637,10 +643,10 @@ export default function WebsiteFrontPage({
               {/* Left Sidebar Department Menu */}
               <div className="lg:col-span-4 bg-white rounded-2xl border border-[#EADBCA] shadow-2xs p-3 space-y-1.5">
                 <div className="px-3 py-2 text-[11px] font-black uppercase tracking-wider text-[#8F6335]">
-                  Academic Departments ({WEBSITE_DEPARTMENTS.length})
+                  Academic Departments ({effectiveDepartments.length})
                 </div>
 
-                {WEBSITE_DEPARTMENTS.map((dept) => {
+                {effectiveDepartments.map((dept) => {
                   const isSelected = dept.id === selectedDeptId;
                   return (
                     <button
@@ -711,34 +717,61 @@ export default function WebsiteFrontPage({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#EFE5D8]">
-                      {currentDepartment.courses.map((c) => (
-                        <tr key={c.id} className="hover:bg-[#FAF4EC] transition-colors">
-                          <td className="py-3.5 px-4">
-                            <strong className="text-[#1F130A] block text-sm">{c.name}</strong>
-                            <span className="text-[11px] text-[#6B5746] font-medium">{c.level} • {c.duration}</span>
-                          </td>
-                          <td className="py-3.5 px-4 text-[#2C1D11] font-medium">
-                            <span className="px-2.5 py-1 bg-[#FAF4EC] rounded text-xs border border-[#E0D2C2] inline-block font-bold text-[#3B281B]">
-                              {c.entryGrade}
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-[#2E1E12] font-semibold">
-                            {c.assessmentBody}
-                          </td>
-                          <td className="py-3.5 px-4 text-[#4A3B2E] text-xs font-medium">
-                            {c.intakePeriods}
-                          </td>
-                          <td className="py-3.5 px-4 text-center">
-                            <button
-                              onClick={() => handleApplyCourse(c.id)}
-                              className="px-3.5 py-1.5 bg-[#C29563] hover:bg-[#B28452] active:bg-[#A37442] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs inline-flex items-center gap-1"
-                            >
-                              <span>Apply</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
+                      {currentDepartment.courses.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-12 px-4 text-center">
+                            <div className="max-w-md mx-auto text-center space-y-3">
+                              <GraduationCap className="w-10 h-10 text-[#C29563] mx-auto opacity-50" />
+                              <h4 className="text-sm font-bold text-[#281A10]">No Courses Listed Yet</h4>
+                              <p className="text-xs text-[#6B5746]">
+                                This department currently does not have active courses listed.
+                                {currentUser?.role === 'admin' ? ' Use the CMS below to add courses, entry grades, and curriculum details.' : ' Please check back soon or consult the registrar.'}
+                              </p>
+                              {currentUser?.role === 'admin' && (
+                                <button
+                                  onClick={() => {
+                                    setCmsInitialTab('courses');
+                                    setIsCmsModalOpen(true);
+                                  }}
+                                  className="px-4 py-2 bg-[#C29563] hover:bg-[#B28452] text-white text-xs font-bold rounded-xl transition-all shadow-xs inline-flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Plus className="w-4 h-4" />
+                                  <span>Add Course to {currentDepartment.name}</span>
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        currentDepartment.courses.map((c) => (
+                          <tr key={c.id} className="hover:bg-[#FAF4EC] transition-colors">
+                            <td className="py-3.5 px-4">
+                              <strong className="text-[#1F130A] block text-sm">{c.name}</strong>
+                              <span className="text-[11px] text-[#6B5746] font-medium">{c.level} • {c.duration}</span>
+                            </td>
+                            <td className="py-3.5 px-4 text-[#2C1D11] font-medium">
+                              <span className="px-2.5 py-1 bg-[#FAF4EC] rounded text-xs border border-[#E0D2C2] inline-block font-bold text-[#3B281B]">
+                                {c.entryGrade}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-[#2E1E12] font-semibold">
+                              {c.assessmentBody}
+                            </td>
+                            <td className="py-3.5 px-4 text-[#4A3B2E] text-xs font-medium">
+                              {c.intakePeriods}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <button
+                                onClick={() => handleApplyCourse(c.id)}
+                                className="px-3.5 py-1.5 bg-[#C29563] hover:bg-[#B28452] active:bg-[#A37442] text-white text-xs font-bold rounded-lg transition-colors shadow-2xs inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <span>Apply</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1811,6 +1844,7 @@ export default function WebsiteFrontPage({
       {isRegisterOpen && (
         <TraineeRegistrationModal
           initialCourseId={registerCourseId}
+          departments={effectiveDepartments}
           onClose={() => setIsRegisterOpen(false)}
           onSubmitApplication={(newApp) => {
             onAddApplication(newApp);

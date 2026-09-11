@@ -118,7 +118,7 @@ async function startServer() {
   // GET State - Instant response from memory and disk (< 2ms)
   app.get("/api/state", async (req, res) => {
     try {
-      if (!cachedState && fs.existsSync(stateFilePath)) {
+      if ((!cachedState || !cachedState.users || cachedState.users.length <= 1 || !cachedState.timetableEntries?.length) && fs.existsSync(stateFilePath)) {
         try {
           cachedState = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
         } catch (localError) {
@@ -283,6 +283,110 @@ async function startServer() {
     }
   });
 
+  // Dedicated atomic endpoint to delete a timetable slot (or multiple linked slots)
+  app.post("/api/timetable/slot/delete", async (req, res) => {
+    try {
+      const { id, ids } = req.body || {};
+      const targetIds = new Set<string>();
+      if (id) targetIds.add(String(id));
+      if (Array.isArray(ids)) ids.forEach(i => i && targetIds.add(String(i)));
+
+      if (targetIds.size === 0) {
+        return res.status(400).json({ success: false, error: "No slot ID provided to delete" });
+      }
+
+      const currentEntries = Array.isArray(cachedState?.timetableEntries) ? cachedState.timetableEntries : [];
+      const remaining = currentEntries.filter((e: any) => !targetIds.has(String(e.id)));
+
+      console.log(`[Slot Delete] Removing ${targetIds.size} slot(s). Old count: ${currentEntries.length}, New count: ${remaining.length}`);
+
+      const result = await persistStateAcrossLayers({
+        timetableEntries: remaining,
+        allowOverwrite: true
+      });
+
+      res.json({
+        success: true,
+        deletedCount: currentEntries.length - remaining.length,
+        timetableEntries: remaining
+      });
+    } catch (err: any) {
+      console.error("Failed to delete slot:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to delete slot" });
+    }
+  });
+
+  // Dedicated atomic endpoint to save / update a timetable slot
+  app.post("/api/timetable/slot/save", async (req, res) => {
+    try {
+      const { entry, entries, units: newUnits, courseGroups: newGroups } = req.body || {};
+      const entriesToSave = Array.isArray(entries) ? entries : (entry ? [entry] : []);
+
+      if (entriesToSave.length === 0) {
+        return res.status(400).json({ success: false, error: "No slot entry provided to save" });
+      }
+
+      let currentEntries = Array.isArray(cachedState?.timetableEntries) ? [...cachedState.timetableEntries] : [];
+
+      for (const item of entriesToSave) {
+        // Cleanly remove old record by id or same slot coordinates
+        currentEntries = currentEntries.filter((e: any) => {
+          if (e.id === item.id) return false;
+          const sameSlot = e.courseId === item.courseId &&
+                           e.semesterName === item.semesterName &&
+                           e.day === item.day &&
+                           e.slotId === item.slotId;
+          if (!sameSlot) return true;
+          // If scheduling for whole cohort (no group), replace any class in this slot
+          if (!item.groupId && !item.groupName) return false;
+          // If scheduling for specific group, replace matching group or whole cohort
+          const itemGrp = (item.groupId || item.groupName || '').toLowerCase().trim();
+          const eGrp = (e.groupId || e.groupName || '').toLowerCase().trim();
+          if (!eGrp || eGrp === itemGrp) return false;
+          return true;
+        });
+        currentEntries.push(item);
+      }
+
+      let currentUnits = Array.isArray(cachedState?.units) ? [...cachedState.units] : [];
+      if (Array.isArray(newUnits)) {
+        for (const nu of newUnits) {
+          if (!currentUnits.some((u: any) => u.id === nu.id)) {
+            currentUnits.push(nu);
+          }
+        }
+      }
+
+      let currentGroups = Array.isArray(cachedState?.courseGroups) ? [...cachedState.courseGroups] : [];
+      if (Array.isArray(newGroups)) {
+        for (const ng of newGroups) {
+          if (!currentGroups.some((g: any) => g.id === ng.id)) {
+            currentGroups.push(ng);
+          }
+        }
+      }
+
+      const cleanEntries = deduplicateTimetableEntries(currentEntries);
+      console.log(`[Slot Save] Saved ${entriesToSave.length} slot(s). Total entries: ${cleanEntries.length}`);
+
+      const result = await persistStateAcrossLayers({
+        timetableEntries: cleanEntries,
+        ...(Array.isArray(newUnits) ? { units: currentUnits } : {}),
+        ...(Array.isArray(newGroups) ? { courseGroups: currentGroups } : {}),
+        allowOverwrite: true
+      });
+
+      res.json({
+        success: true,
+        timetableEntries: cleanEntries,
+        count: cleanEntries.length
+      });
+    } catch (err: any) {
+      console.error("Failed to save slot:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to save slot" });
+    }
+  });
+
   // Dedicated instant save endpoint for Timetable changes
   app.post("/api/save-timetable", async (req, res) => {
     try {
@@ -362,6 +466,38 @@ async function startServer() {
     } catch (err: any) {
       console.error("Failed to purge demo accounts:", err);
       res.status(500).json({ success: false, error: err?.message || "Failed to purge demo accounts" });
+    }
+  });
+
+  // Dedicated endpoint to restore all default institutional users and timetable schedules
+  app.post("/api/restore-institutional-data", async (req, res) => {
+    try {
+      if (fs.existsSync(stateFilePath)) {
+        cachedState = JSON.parse(fs.readFileSync(stateFilePath, 'utf-8'));
+      }
+      if (cachedState) {
+        cachedState.demoAccountsPurged = false;
+      }
+      const result = await persistStateAcrossLayers({
+        users: cachedState?.users,
+        departments: cachedState?.departments,
+        courses: cachedState?.courses,
+        classrooms: cachedState?.classrooms,
+        units: cachedState?.units,
+        timetableEntries: cachedState?.timetableEntries,
+        demoAccountsPurged: false,
+        allowOverwrite: true
+      });
+      res.json({
+        success: true,
+        usersCount: cachedState?.users?.length || 0,
+        entriesCount: cachedState?.timetableEntries?.length || 0,
+        state: cachedState,
+        result
+      });
+    } catch (err: any) {
+      console.error("Failed to restore institutional data:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to restore data" });
     }
   });
 

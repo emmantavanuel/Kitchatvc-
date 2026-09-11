@@ -333,6 +333,42 @@ export interface WebsiteStatItem {
   helper?: string;
 }
 
+export interface WebsiteCourse {
+  id: string;
+  name: string;
+  entryGrade: string;
+  assessmentBody: string;
+  intakePeriods: string;
+  duration: string;
+  level: string;
+  departmentId: string;
+}
+
+export interface WebsiteDepartment {
+  id: string;
+  name: string;
+  code: string;
+  description: string;
+  headOfDepartment: string;
+  courses: WebsiteCourse[];
+}
+
+export interface WebsiteSliderSlide {
+  id: string;
+  imageUrl: string;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  buttonText?: string;
+  buttonAction?: 'register' | 'courses' | 'status' | 'departments' | 'admissions' | 'contact' | 'portal' | 'custom';
+  buttonUrl?: string;
+  secondaryButtonText?: string;
+  secondaryButtonAction?: 'register' | 'courses' | 'status' | 'departments' | 'admissions' | 'contact' | 'portal' | 'custom';
+  secondaryButtonUrl?: string;
+  isActive?: boolean;
+  order?: number;
+}
+
 export interface WebsiteConfig {
   collegeName: string;
   shortName: string;
@@ -349,6 +385,12 @@ export interface WebsiteConfig {
   logoUrl?: string;
   heroImageUrl?: string;
   principalImageUrl?: string;
+
+  // Hero Slider & Slides
+  slides?: WebsiteSliderSlide[];
+
+  // Dynamic Academic Departments & Courses Offered
+  departments?: WebsiteDepartment[];
 
   // Hero & Overview
   heroHeadline: string;

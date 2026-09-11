@@ -27,6 +27,8 @@ interface HodDashboardProps {
   academicSetting: AcademicSetting;
   onUpdateCourseGroups?: (groups: CourseGroup[]) => void;
   onUpdateTimetableEntries: (entries: TimetableEntry[]) => void;
+  onDeleteTimetableSlot?: (idOrIds: string | string[]) => Promise<boolean>;
+  onSaveTimetableSlot?: (entryOrEntries: TimetableEntry | TimetableEntry[], nextUnits?: Unit[], nextGroups?: CourseGroup[]) => Promise<boolean>;
   onUpdateUnits: (units: Unit[]) => void;
   onUpdateTrainerPreferences: (prefs: any[]) => void;
   onUpdateCourses: (courses: Course[]) => void;
@@ -121,6 +123,8 @@ export default function HodDashboard({
   academicSetting,
   onUpdateCourseGroups,
   onUpdateTimetableEntries,
+  onDeleteTimetableSlot,
+  onSaveTimetableSlot,
   onUpdateUnits,
   onUpdateTrainerPreferences,
   onUpdateCourses,
@@ -130,6 +134,11 @@ export default function HodDashboard({
 }: HodDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('scheduler');
   const [selectedTrainerForViewId, setSelectedTrainerForViewId] = useState<string>(currentUser.id);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [deleteLinkedPrompt, setDeleteLinkedPrompt] = useState<{
+    targetEntry: TimetableEntry;
+    linkedEntries: TimetableEntry[];
+  } | null>(null);
   const [printMasterPreview, setPrintMasterPreview] = useState(false);
   const [printUnitsPreview, setPrintUnitsPreview] = useState(false);
   const [unitsFilterCourse, setUnitsFilterCourse] = useState<string>('all');

@@ -33,9 +33,12 @@ import {
   saveApplicationState, 
   saveTimetableDirectly, 
   deduplicateTimetableEntries,
+  deleteSlotDirectly,
+  saveSlotDirectly,
   saveWebsiteConfigDirectly, 
   savePoeDirectly,
   purgeDemoAccountsDirectly,
+  restoreInstitutionalDataDirectly,
   testConnection, 
   subscribeToRealtimeUpdates, 
   broadcastLocalUpdate 
@@ -414,52 +417,52 @@ export default function App() {
           } = loadedState;
           
           let resolvedUsers: User[] = users;
-          if (sUsers) {
-            let mappedUsers = sUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : u);
-            if (!mappedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
-              mappedUsers.unshift(INITIAL_USERS[0]);
+          const rawServerUsers = Array.isArray(sUsers) && sUsers.length > 1 ? sUsers : INITIAL_USERS;
+          let mappedUsers = rawServerUsers.map((u: any) => u.username?.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : { ...u, isActive: true });
+          if (!mappedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+            mappedUsers.unshift(INITIAL_USERS[0]);
+          }
+          for (const initU of INITIAL_USERS) {
+            if (!mappedUsers.some((u: any) => u.id === initU.id || u.username?.toLowerCase() === initU.username.toLowerCase())) {
+              mappedUsers.push(initU);
             }
-            const isPurged = Boolean(loadedState.demoAccountsPurged || localStorage.getItem(KEYS.DEMO_ACCOUNTS_PURGED) === 'true');
-            if (isPurged) {
-              mappedUsers = mappedUsers.filter((u: any) => !isDemoAccount(u));
-              safeSetItem(KEYS.DEMO_ACCOUNTS_PURGED, 'true');
-            }
-            resolvedUsers = mappedUsers;
-            setUsers(mappedUsers);
-            safeSetItem(KEYS.USERS, JSON.stringify(mappedUsers));
           }
-          if (sDepts) {
-            setDepartments(sDepts);
-            localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(sDepts));
-          }
-          if (sCourses) {
-            setCourses(sCourses);
-            localStorage.setItem(KEYS.COURSES, JSON.stringify(sCourses));
-          }
-          if (sClassrooms) {
-            setClassroom(sClassrooms);
-            localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(sClassrooms));
-          }
-          if (sUnits) {
-            setUnits(sUnits);
-            localStorage.setItem(KEYS.UNITS, JSON.stringify(sUnits));
-          }
-          if (sCourseGroups) {
-            setCourseGroups(sCourseGroups);
-            localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(sCourseGroups));
-          }
-          if (sEntries) {
-            setTimetableEntries(sEntries);
-            localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(sEntries));
-          }
-          if (sPrefs) {
-            setTrainerPreferences(sPrefs);
-            localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(sPrefs));
-          }
-          if (sAcademic) {
-            setAcademicSetting(sAcademic);
-            localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(sAcademic));
-          }
+          resolvedUsers = mappedUsers;
+          setUsers(mappedUsers);
+          safeSetItem(KEYS.USERS, JSON.stringify(mappedUsers));
+          localStorage.removeItem(KEYS.DEMO_ACCOUNTS_PURGED);
+
+          const resolvedDepts = (Array.isArray(sDepts) && sDepts.length > 0) ? sDepts : INITIAL_DEPARTMENTS;
+          setDepartments(resolvedDepts);
+          localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(resolvedDepts));
+
+          const resolvedCourses = (Array.isArray(sCourses) && sCourses.length > 0) ? sCourses : INITIAL_COURSES;
+          setCourses(resolvedCourses);
+          localStorage.setItem(KEYS.COURSES, JSON.stringify(resolvedCourses));
+
+          const resolvedClassrooms = (Array.isArray(sClassrooms) && sClassrooms.length > 0) ? sClassrooms : INITIAL_CLASSROOMS;
+          setClassroom(resolvedClassrooms);
+          localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(resolvedClassrooms));
+
+          const resolvedUnits = (Array.isArray(sUnits) && sUnits.length > 0) ? sUnits : INITIAL_UNITS;
+          setUnits(resolvedUnits);
+          localStorage.setItem(KEYS.UNITS, JSON.stringify(resolvedUnits));
+
+          const resolvedCourseGroups = sCourseGroups || [];
+          setCourseGroups(resolvedCourseGroups);
+          localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(resolvedCourseGroups));
+
+          const resolvedEntries = (Array.isArray(sEntries) && sEntries.length > 0) ? sEntries : INITIAL_TIMETABLE_ENTRIES;
+          setTimetableEntries(resolvedEntries);
+          localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(resolvedEntries));
+
+          const resolvedPrefs = (Array.isArray(sPrefs) && sPrefs.length > 0) ? sPrefs : INITIAL_TRAINER_PREFERENCES;
+          setTrainerPreferences(resolvedPrefs);
+          localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(resolvedPrefs));
+
+          const resolvedAcademic = sAcademic || DEFAULT_ACADEMIC_SETTING;
+          setAcademicSetting(resolvedAcademic);
+          localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(resolvedAcademic));
           
           // Dynamic website CMS config
           if (sWebsiteConfig) {
@@ -567,21 +570,24 @@ export default function App() {
           const storedPoeNotifs = localStorage.getItem(KEYS.POE_NOTIFICATIONS);
           const storedPoeRubrics = localStorage.getItem(KEYS.POE_RUBRICS);
 
-          const isPurged = localStorage.getItem(KEYS.DEMO_ACCOUNTS_PURGED) === 'true';
-          const rawLoadedUsers = storedUsers ? JSON.parse(storedUsers) : (isPurged ? [INITIAL_USERS[0]] : INITIAL_USERS);
-          let loadedUsers = rawLoadedUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : u);
+          localStorage.removeItem(KEYS.DEMO_ACCOUNTS_PURGED);
+          const parsedUsers = storedUsers ? JSON.parse(storedUsers) : null;
+          const rawLoadedUsers = (Array.isArray(parsedUsers) && parsedUsers.length > 1) ? parsedUsers : INITIAL_USERS;
+          let loadedUsers = rawLoadedUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : { ...u, isActive: true });
           if (!loadedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
             loadedUsers.unshift(INITIAL_USERS[0]);
           }
-          if (isPurged) {
-            loadedUsers = loadedUsers.filter((u: any) => !isDemoAccount(u));
+          for (const initU of INITIAL_USERS) {
+            if (!loadedUsers.some((u: any) => u.id === initU.id || u.username?.toLowerCase() === initU.username.toLowerCase())) {
+              loadedUsers.push(initU);
+            }
           }
-          const loadedDepts = storedDepts ? JSON.parse(storedDepts) : INITIAL_DEPARTMENTS;
-          const loadedCourses = storedCourses ? JSON.parse(storedCourses) : INITIAL_COURSES;
-          const loadedRooms = storedRooms ? JSON.parse(storedRooms) : INITIAL_CLASSROOMS;
-          const loadedUnits = storedUnits ? JSON.parse(storedUnits) : INITIAL_UNITS;
+          const loadedDepts = (storedDepts && JSON.parse(storedDepts).length > 0) ? JSON.parse(storedDepts) : INITIAL_DEPARTMENTS;
+          const loadedCourses = (storedCourses && JSON.parse(storedCourses).length > 0) ? JSON.parse(storedCourses) : INITIAL_COURSES;
+          const loadedRooms = (storedRooms && JSON.parse(storedRooms).length > 0) ? JSON.parse(storedRooms) : INITIAL_CLASSROOMS;
+          const loadedUnits = (storedUnits && JSON.parse(storedUnits).length > 0) ? JSON.parse(storedUnits) : INITIAL_UNITS;
           const loadedCourseGroups = storedCourseGroups ? JSON.parse(storedCourseGroups) : [];
-          const loadedEntries = storedEntries ? JSON.parse(storedEntries) : INITIAL_TIMETABLE_ENTRIES;
+          const loadedEntries = (storedEntries && JSON.parse(storedEntries).length > 0) ? JSON.parse(storedEntries) : INITIAL_TIMETABLE_ENTRIES;
           const loadedPrefs = storedPrefs ? JSON.parse(storedPrefs) : INITIAL_TRAINER_PREFERENCES;
           const loadedAcademic = storedAcademic ? JSON.parse(storedAcademic) : DEFAULT_ACADEMIC_SETTING;
           const loadedWebsite = storedWebsite ? JSON.parse(storedWebsite) : DEFAULT_WEBSITE_CONFIG;
@@ -931,6 +937,57 @@ export default function App() {
     return demoCount;
   };
 
+  const handleRestoreInstitutionalData = async () => {
+    localStorage.removeItem(KEYS.DEMO_ACCOUNTS_PURGED);
+    const restoredUsers = [...INITIAL_USERS];
+    const restoredDepts = [...INITIAL_DEPARTMENTS];
+    const restoredCourses = [...INITIAL_COURSES];
+    const restoredRooms = [...INITIAL_CLASSROOMS];
+    const restoredUnits = [...INITIAL_UNITS];
+    const restoredEntries = [...INITIAL_TIMETABLE_ENTRIES];
+
+    setUsers(restoredUsers);
+    setDepartments(restoredDepts);
+    setCourses(restoredCourses);
+    setClassroom(restoredRooms);
+    setUnits(restoredUnits);
+    setTimetableEntries(restoredEntries);
+
+    stateRef.current.users = restoredUsers;
+    stateRef.current.departments = restoredDepts;
+    stateRef.current.courses = restoredCourses;
+    stateRef.current.classrooms = restoredRooms;
+    stateRef.current.units = restoredUnits;
+    stateRef.current.timetableEntries = restoredEntries;
+    stateRef.current.demoAccountsPurged = false;
+
+    safeSetItem(KEYS.USERS, JSON.stringify(restoredUsers));
+    safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(restoredDepts));
+    safeSetItem(KEYS.COURSES, JSON.stringify(restoredCourses));
+    safeSetItem(KEYS.CLASSROOMS, JSON.stringify(restoredRooms));
+    safeSetItem(KEYS.UNITS, JSON.stringify(restoredUnits));
+    safeSetItem(KEYS.TIMETABLE, JSON.stringify(restoredEntries));
+
+    try {
+      await restoreInstitutionalDataDirectly();
+    } catch (e) {
+      console.warn('Restore institutional data endpoint notice:', e);
+    }
+
+    await saveStateToDatabaseImmediately({
+      users: restoredUsers,
+      departments: restoredDepts,
+      courses: restoredCourses,
+      classrooms: restoredRooms,
+      units: restoredUnits,
+      timetableEntries: restoredEntries,
+      demoAccountsPurged: false,
+      allowOverwrite: true
+    });
+
+    return { usersCount: restoredUsers.length, entriesCount: restoredEntries.length };
+  };
+
   const updateDepartmentsState = (updated: Department[]) => {
     setDepartments(updated);
     stateRef.current.departments = updated;
@@ -995,8 +1052,106 @@ export default function App() {
     });
     // Dedicated instant save for timetable to ensure zero latency in cloud
     saveTimetableDirectly(deduplicated, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
-    // Immediately synchronize full state to Cloud Firestore & server
-    triggerAutoSave({ timetableEntries: deduplicated, allowOverwrite: true }, true);
+  };
+
+  // Dedicated atomic slot deletion with instant optimistic state update and reliable persistence
+  const handleDeleteTimetableSlot = async (idOrIds: string | string[]): Promise<boolean> => {
+    const idArray = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+    const ids = new Set(idArray);
+    const current = stateRef.current.timetableEntries || timetableEntries;
+    const remaining = current.filter(e => !ids.has(e.id));
+    
+    // 1. Instant local UI update
+    setTimetableEntries(remaining);
+    stateRef.current.timetableEntries = remaining;
+    safeSetItem(KEYS.TIMETABLE, JSON.stringify(remaining));
+
+    // 2. Broadcast to other tabs
+    broadcastLocalUpdate('timetable', {
+      timetableEntries: remaining,
+      units: stateRef.current.units,
+      courseGroups: stateRef.current.courseGroups
+    });
+
+    // 3. Authoritative server delete
+    try {
+      const res = await deleteSlotDirectly(idArray);
+      if (res.success && Array.isArray(res.timetableEntries)) {
+        setTimetableEntries(res.timetableEntries);
+        stateRef.current.timetableEntries = res.timetableEntries;
+        safeSetItem(KEYS.TIMETABLE, JSON.stringify(res.timetableEntries));
+      }
+      return true;
+    } catch (e) {
+      console.warn('[Slot Delete] Error in cloud sync:', e);
+      return false;
+    }
+  };
+
+  // Dedicated atomic slot saving with instant optimistic state update and reliable persistence
+  const handleSaveTimetableSlot = async (
+    entryOrEntries: TimetableEntry | TimetableEntry[],
+    nextUnits?: Unit[],
+    nextGroups?: CourseGroup[]
+  ): Promise<boolean> => {
+    const entriesToSave = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
+    let current = [...(stateRef.current.timetableEntries || timetableEntries)];
+
+    for (const item of entriesToSave) {
+      current = current.filter(e => {
+        if (e.id === item.id) return false;
+        const sameSlot = e.courseId === item.courseId &&
+                         e.semesterName === item.semesterName &&
+                         e.day === item.day &&
+                         e.slotId === item.slotId;
+        if (!sameSlot) return true;
+        if (!item.groupId && !item.groupName) return false;
+        const itemGrp = (item.groupId || item.groupName || '').toLowerCase().trim();
+        const eGrp = (e.groupId || e.groupName || '').toLowerCase().trim();
+        if (!eGrp || eGrp === itemGrp) return false;
+        return true;
+      });
+      current.push(item);
+    }
+
+    const cleanEntries = deduplicateTimetableEntries(current);
+
+    // 1. Instant local UI update
+    setTimetableEntries(cleanEntries);
+    stateRef.current.timetableEntries = cleanEntries;
+    safeSetItem(KEYS.TIMETABLE, JSON.stringify(cleanEntries));
+
+    if (nextUnits && nextUnits.length > 0) {
+      setUnits(nextUnits);
+      stateRef.current.units = nextUnits;
+      safeSetItem(KEYS.UNITS, JSON.stringify(nextUnits));
+    }
+    if (nextGroups && nextGroups.length > 0) {
+      setCourseGroups(nextGroups);
+      stateRef.current.courseGroups = nextGroups;
+      safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(nextGroups));
+    }
+
+    // 2. Broadcast to other tabs
+    broadcastLocalUpdate('timetable', {
+      timetableEntries: cleanEntries,
+      units: stateRef.current.units,
+      courseGroups: stateRef.current.courseGroups
+    });
+
+    // 3. Authoritative server save
+    try {
+      const res = await saveSlotDirectly(entriesToSave, nextUnits, nextGroups);
+      if (res.success && Array.isArray(res.timetableEntries)) {
+        setTimetableEntries(res.timetableEntries);
+        stateRef.current.timetableEntries = res.timetableEntries;
+        safeSetItem(KEYS.TIMETABLE, JSON.stringify(res.timetableEntries));
+      }
+      return true;
+    } catch (e) {
+      console.warn('[Slot Save] Error in cloud sync:', e);
+      return false;
+    }
   };
 
   const updateTrainerPreferencesState = (updated: TrainerSlotPreference[]) => {
@@ -1397,6 +1552,8 @@ export default function App() {
           onUpdateAcademicSetting={updateAcademicSettingState}
           onUpdateCourseGroups={updateCourseGroupsState}
           onUpdateTimetableEntries={updateTimetableEntriesState}
+          onDeleteTimetableSlot={handleDeleteTimetableSlot}
+          onSaveTimetableSlot={handleSaveTimetableSlot}
           onUpdateUnits={updateUnitsState}
           onImportState={handleImportState}
           onLogout={handleLogout}
@@ -1405,6 +1562,7 @@ export default function App() {
           onUpdateWebsiteConfig={updateWebsiteConfigState}
           onNavigateToPoe={() => setActiveWorkspace('portfolio')}
           onPurgeDemoAccounts={handlePurgeDemoAccounts}
+          onRestoreInstitutionalData={handleRestoreInstitutionalData}
         />
       );
     }
@@ -1424,6 +1582,8 @@ export default function App() {
           academicSetting={academicSetting}
           onUpdateCourseGroups={updateCourseGroupsState}
           onUpdateTimetableEntries={updateTimetableEntriesState}
+          onDeleteTimetableSlot={handleDeleteTimetableSlot}
+          onSaveTimetableSlot={handleSaveTimetableSlot}
           onUpdateUnits={updateUnitsState}
           onUpdateTrainerPreferences={updateTrainerPreferencesState}
           onUpdateCourses={updateCoursesState}

@@ -1074,6 +1074,7 @@ export default function App() {
     });
 
     // 3. Authoritative server delete
+    saveTimetableDirectly(remaining, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
     try {
       const res = await deleteSlotDirectly(idArray);
       if (res.success && Array.isArray(res.timetableEntries)) {
@@ -1140,6 +1141,7 @@ export default function App() {
     });
 
     // 3. Authoritative server save
+    saveTimetableDirectly(cleanEntries, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
     try {
       const res = await saveSlotDirectly(entriesToSave, nextUnits, nextGroups);
       if (res.success && Array.isArray(res.timetableEntries)) {

@@ -34,6 +34,8 @@ interface AdminDashboardProps {
   onUpdateAcademicSetting: (setting: AcademicSetting) => void;
   onUpdateCourseGroups?: (groups: CourseGroup[]) => void;
   onUpdateTimetableEntries: (entries: TimetableEntry[]) => void;
+  onDeleteTimetableSlot?: (idOrIds: string | string[]) => Promise<boolean>;
+  onSaveTimetableSlot?: (entryOrEntries: TimetableEntry | TimetableEntry[], nextUnits?: Unit[], nextGroups?: CourseGroup[]) => Promise<boolean>;
   onUpdateUnits: (units: Unit[]) => void;
   onImportState: (fullState: any) => void;
   onLogout: () => void;

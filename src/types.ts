@@ -574,4 +574,13 @@ export interface PoeRubric {
   criteria: PoeRubricCriterion[];
 }
 
+export interface SlotSaveResult {
+  success: boolean;
+  timetableEntries: TimetableEntry[];
+  firestoreSaved: boolean;
+  serverSaved: boolean;
+  quotaExceeded?: boolean;
+  error?: string;
+}
+
 

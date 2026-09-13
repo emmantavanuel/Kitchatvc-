@@ -5,7 +5,7 @@ import {
 import { 
   User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, TrainerSlotPreference, CourseGroup,
   Student, FeeStructure, Invoice, PaymentTransaction, InstallmentPlan, FeeAuditLog, AdmissionApplication, ExamMark,
-  WebsiteConfig, PoeDocument, PoeNotification, PoeRubric
+  WebsiteConfig, PoeDocument, PoeNotification, PoeRubric, SlotSaveResult
 } from './types';
 import { 
   INITIAL_USERS, INITIAL_DEPARTMENTS, INITIAL_COURSES, INITIAL_CLASSROOMS, 
@@ -39,6 +39,7 @@ import {
   savePoeDirectly,
   purgeDemoAccountsDirectly,
   restoreInstitutionalDataDirectly,
+  clearLegacyLocalStorage,
   testConnection, 
   subscribeToRealtimeUpdates, 
   broadcastLocalUpdate 
@@ -73,13 +74,10 @@ const KEYS = {
   POE_RUBRICS: `${STORAGE_PREFIX}poe_rubrics`
 };
 
-// Resilient localStorage write wrapper
-function safeSetItem(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch (err) {
-    console.warn(`[Storage Cache] Notice saving ${key}:`, err);
-  }
+// Pure Google Cloud Architecture: Browser caching is completely disabled
+function safeSetItem(_key: string, _value: string) {
+  // Pure Google Cloud Architecture: All data persists directly to Google Cloud Firestore.
+  // Browser caching and local storage are strictly disabled.
 }
 
 export default function App() {
@@ -226,57 +224,36 @@ export default function App() {
     setSyncStatus('saving');
     setIsErrorBannerDismissed(false);
 
-    // 1. Immediately cache all updated entities to localStorage synchronously
-    const nowIso = new Date().toISOString();
-    safeSetItem(LAST_UPDATED_KEY, nowIso);
-    if (fullPayload.users) safeSetItem(KEYS.USERS, JSON.stringify(fullPayload.users));
-    if (fullPayload.departments) safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(fullPayload.departments));
-    if (fullPayload.courses) safeSetItem(KEYS.COURSES, JSON.stringify(fullPayload.courses));
-    if (fullPayload.classrooms) safeSetItem(KEYS.CLASSROOMS, JSON.stringify(fullPayload.classrooms));
-    if (fullPayload.units) safeSetItem(KEYS.UNITS, JSON.stringify(fullPayload.units));
-    if (fullPayload.courseGroups) safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(fullPayload.courseGroups));
-    if (fullPayload.timetableEntries) safeSetItem(KEYS.TIMETABLE, JSON.stringify(fullPayload.timetableEntries));
-    if (fullPayload.trainerPreferences) safeSetItem(KEYS.PREFERENCES, JSON.stringify(fullPayload.trainerPreferences));
-    if (fullPayload.academicSetting) safeSetItem(KEYS.ACADEMIC, JSON.stringify(fullPayload.academicSetting));
-    if (fullPayload.websiteConfig) safeSetItem(KEYS.WEBSITE_CONFIG, JSON.stringify(fullPayload.websiteConfig));
-    if (fullPayload.students) safeSetItem(KEYS.STUDENTS, JSON.stringify(fullPayload.students));
-    if (fullPayload.feeStructures) safeSetItem(KEYS.FEE_STRUCTURES, JSON.stringify(fullPayload.feeStructures));
-    if (fullPayload.invoices) safeSetItem(KEYS.INVOICES, JSON.stringify(fullPayload.invoices));
-    if (fullPayload.payments) safeSetItem(KEYS.PAYMENTS, JSON.stringify(fullPayload.payments));
-    if (fullPayload.installmentPlans) safeSetItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(fullPayload.installmentPlans));
-    if (fullPayload.feeAuditLogs) safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(fullPayload.feeAuditLogs));
-    if (fullPayload.admissionApplications) safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(fullPayload.admissionApplications));
-    if (fullPayload.examMarks) safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(fullPayload.examMarks));
-    if (fullPayload.poeDocuments) safeSetItem(KEYS.POE_DOCUMENTS, JSON.stringify(fullPayload.poeDocuments));
-    if (fullPayload.poeNotifications) safeSetItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(fullPayload.poeNotifications));
-    if (fullPayload.poeRubrics) safeSetItem(KEYS.POE_RUBRICS, JSON.stringify(fullPayload.poeRubrics));
-
-    // 2. Check network connectivity
+    // 1. Check network connectivity
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setSyncStatus('error');
-      setSyncErrorMessage("Offline Mode: You are currently offline. Changes are saved locally on this computer and will automatically sync when reconnected.");
-      return true;
+      setSyncErrorMessage("Offline: Network disconnected. Please reconnect to save changes directly to the cloud.");
+      return false;
     }
 
-    // 3. Save to Firebase Cloud Firestore and local server
+    // 2. Save directly to Cloud (Server API + Cloud Firestore)
     try {
       const result = await saveApplicationState(fullPayload);
-      if (result.firestoreSaved || result.isCloudSynced) {
+      if (result.isCloudSynced || result.firestoreSaved || result.serverSaved) {
         setSyncStatus('synced');
         setSyncErrorMessage(null);
-        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (Cloud Synced)');
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        if ((result as any).quotaExceeded) {
+          setLastSavedTime(`${timeStr} (Cloud Server Synced)`);
+        } else {
+          setLastSavedTime(`${timeStr} (Cloud Synced)`);
+        }
       } else {
         setSyncStatus('error');
-        setSyncErrorMessage(result.error || "Could not reach Cloud Firestore. Saved locally on this device.");
-        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (Local Only)');
+        setSyncErrorMessage(result.error || "Could not reach Cloud database. Please check your network connection.");
+        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' (Sync Pending)');
       }
       return true;
     } catch (err: any) {
       console.warn('[Database Sync] Cloud write notice:', err);
       setSyncStatus('error');
-      setSyncErrorMessage("Could not reach Cloud Firestore. Changes are safely saved locally on this computer.");
-      setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (Local Only)");
-      return true;
+      setSyncErrorMessage("Could not reach Cloud database. Please check your network connection.");
+      return false;
     }
   }, [
     users, departments, courses, classrooms, units, courseGroups,
@@ -285,35 +262,13 @@ export default function App() {
     feeAuditLogs, admissionApplications, examMarks, poeDocuments, poeNotifications, poeRubrics
   ]);
 
-  // AUTOMATIC REAL-TIME SAVER (Instant when immediate=true, otherwise debounced)
+  // AUTOMATIC REAL-TIME SAVER (Direct to Cloud, Instant when immediate=true, otherwise debounced)
   const triggerAutoSave = useCallback((stateOverride?: any, immediate: boolean = false) => {
     if (stateOverride) {
       stateRef.current = {
         ...stateRef.current,
         ...stateOverride
       };
-      safeSetItem(LAST_UPDATED_KEY, new Date().toISOString());
-      if (stateOverride.users) safeSetItem(KEYS.USERS, JSON.stringify(stateOverride.users));
-      if (stateOverride.departments) safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(stateOverride.departments));
-      if (stateOverride.courses) safeSetItem(KEYS.COURSES, JSON.stringify(stateOverride.courses));
-      if (stateOverride.classrooms) safeSetItem(KEYS.CLASSROOMS, JSON.stringify(stateOverride.classrooms));
-      if (stateOverride.units) safeSetItem(KEYS.UNITS, JSON.stringify(stateOverride.units));
-      if (stateOverride.courseGroups) safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(stateOverride.courseGroups));
-      if (stateOverride.timetableEntries) safeSetItem(KEYS.TIMETABLE, JSON.stringify(stateOverride.timetableEntries));
-      if (stateOverride.trainerPreferences) safeSetItem(KEYS.PREFERENCES, JSON.stringify(stateOverride.trainerPreferences));
-      if (stateOverride.academicSetting) safeSetItem(KEYS.ACADEMIC, JSON.stringify(stateOverride.academicSetting));
-      if (stateOverride.websiteConfig) safeSetItem(KEYS.WEBSITE_CONFIG, JSON.stringify(stateOverride.websiteConfig));
-      if (stateOverride.students) safeSetItem(KEYS.STUDENTS, JSON.stringify(stateOverride.students));
-      if (stateOverride.feeStructures) safeSetItem(KEYS.FEE_STRUCTURES, JSON.stringify(stateOverride.feeStructures));
-      if (stateOverride.invoices) safeSetItem(KEYS.INVOICES, JSON.stringify(stateOverride.invoices));
-      if (stateOverride.payments) safeSetItem(KEYS.PAYMENTS, JSON.stringify(stateOverride.payments));
-      if (stateOverride.installmentPlans) safeSetItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(stateOverride.installmentPlans));
-      if (stateOverride.feeAuditLogs) safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(stateOverride.feeAuditLogs));
-      if (stateOverride.admissionApplications) safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(stateOverride.admissionApplications));
-      if (stateOverride.examMarks) safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(stateOverride.examMarks));
-      if (stateOverride.poeDocuments) safeSetItem(KEYS.POE_DOCUMENTS, JSON.stringify(stateOverride.poeDocuments));
-      if (stateOverride.poeNotifications) safeSetItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(stateOverride.poeNotifications));
-      if (stateOverride.poeRubrics) safeSetItem(KEYS.POE_RUBRICS, JSON.stringify(stateOverride.poeRubrics));
     }
 
     setSyncStatus('saving');
@@ -334,20 +289,13 @@ export default function App() {
     }, 250);
   }, [saveStateToDatabaseImmediately]);
 
-  // Ensure state is flushed on page unload/navigation
+  // Ensure timer cleanup on page unload/navigation
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
       }
-      try {
-        const payload = stateRef.current;
-        safeSetItem(LAST_UPDATED_KEY, new Date().toISOString());
-        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-          navigator.sendBeacon('/api/state', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-        }
-      } catch (e) {}
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -383,15 +331,39 @@ export default function App() {
   };
 
 
-  // Initialize and load state from Server or Fallback LocalStorage on mount
+  // Initialize and load state directly from Cloud (Server API + Firestore) on mount
   useEffect(() => {
     const initializeData = async () => {
       try {
-        const localLastUpdated = localStorage.getItem(LAST_UPDATED_KEY);
-        const loadedState = await loadApplicationState(localLastUpdated);
+        // 1. Purge legacy local storage cache so state is purely from Cloud
+        clearLegacyLocalStorage();
+
+        // 2. Load directly from Cloud Server API and Firestore
+        const loadedState = await loadApplicationState();
+
+        let resolvedUsers: User[] = INITIAL_USERS;
+        let resolvedDepts: Department[] = INITIAL_DEPARTMENTS;
+        let resolvedCourses: Course[] = INITIAL_COURSES;
+        let resolvedClassrooms: Classroom[] = INITIAL_CLASSROOMS;
+        let resolvedUnits: Unit[] = INITIAL_UNITS;
+        let resolvedCourseGroups: CourseGroup[] = [];
+        let resolvedEntries: TimetableEntry[] = INITIAL_TIMETABLE_ENTRIES;
+        let resolvedPrefs: TrainerSlotPreference[] = INITIAL_TRAINER_PREFERENCES;
+        let resolvedAcademic: AcademicSetting = DEFAULT_ACADEMIC_SETTING;
+        let resolvedWebsite: WebsiteConfig = DEFAULT_WEBSITE_CONFIG;
+        let resolvedStudents: Student[] = INITIAL_STUDENTS;
+        let resolvedFeeStructures: FeeStructure[] = INITIAL_FEE_STRUCTURES;
+        let resolvedInvoices: Invoice[] = INITIAL_INVOICES;
+        let resolvedPayments: PaymentTransaction[] = INITIAL_PAYMENTS;
+        let resolvedInstallments: InstallmentPlan[] = INITIAL_INSTALLMENT_PLANS;
+        let resolvedFeeLogs: FeeAuditLog[] = INITIAL_FEE_AUDIT_LOGS;
+        let resolvedAdmissions: AdmissionApplication[] = INITIAL_ADMISSION_APPLICATIONS;
+        let resolvedExams: ExamMark[] = INITIAL_EXAM_MARKS;
+        let resolvedPoeDocs: PoeDocument[] = INITIAL_POE_DOCUMENTS;
+        let resolvedPoeNotifs: PoeNotification[] = INITIAL_POE_NOTIFICATIONS;
+        let resolvedPoeRubrics: PoeRubric[] = INITIAL_POE_RUBRICS;
 
         if (loadedState) {
-          // Loaded successfully from Cloud Firestore or Server!
           const { 
             users: sUsers, 
             departments: sDepts, 
@@ -415,8 +387,7 @@ export default function App() {
             poeNotifications: sPoeNotifications,
             poeRubrics: sPoeRubrics
           } = loadedState;
-          
-          let resolvedUsers: User[] = users;
+
           const rawServerUsers = Array.isArray(sUsers) && sUsers.length > 1 ? sUsers : INITIAL_USERS;
           let mappedUsers = rawServerUsers.map((u: any) => u.username?.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : { ...u, isActive: true });
           if (!mappedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
@@ -428,331 +399,88 @@ export default function App() {
             }
           }
           resolvedUsers = mappedUsers;
-          setUsers(mappedUsers);
-          safeSetItem(KEYS.USERS, JSON.stringify(mappedUsers));
-          localStorage.removeItem(KEYS.DEMO_ACCOUNTS_PURGED);
 
-          const resolvedDepts = (Array.isArray(sDepts) && sDepts.length > 0) ? sDepts : INITIAL_DEPARTMENTS;
-          setDepartments(resolvedDepts);
-          localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(resolvedDepts));
-
-          const resolvedCourses = (Array.isArray(sCourses) && sCourses.length > 0) ? sCourses : INITIAL_COURSES;
-          setCourses(resolvedCourses);
-          localStorage.setItem(KEYS.COURSES, JSON.stringify(resolvedCourses));
-
-          const resolvedClassrooms = (Array.isArray(sClassrooms) && sClassrooms.length > 0) ? sClassrooms : INITIAL_CLASSROOMS;
-          setClassroom(resolvedClassrooms);
-          localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(resolvedClassrooms));
-
-          const resolvedUnits = (Array.isArray(sUnits) && sUnits.length > 0) ? sUnits : INITIAL_UNITS;
-          setUnits(resolvedUnits);
-          localStorage.setItem(KEYS.UNITS, JSON.stringify(resolvedUnits));
-
-          const resolvedCourseGroups = sCourseGroups || [];
-          setCourseGroups(resolvedCourseGroups);
-          localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(resolvedCourseGroups));
-
-          const resolvedEntries = (Array.isArray(sEntries) && sEntries.length > 0) ? sEntries : INITIAL_TIMETABLE_ENTRIES;
-          setTimetableEntries(resolvedEntries);
-          localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(resolvedEntries));
-
-          const resolvedPrefs = (Array.isArray(sPrefs) && sPrefs.length > 0) ? sPrefs : INITIAL_TRAINER_PREFERENCES;
-          setTrainerPreferences(resolvedPrefs);
-          localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(resolvedPrefs));
-
-          const resolvedAcademic = sAcademic || DEFAULT_ACADEMIC_SETTING;
-          setAcademicSetting(resolvedAcademic);
-          localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(resolvedAcademic));
-          
-          // Dynamic website CMS config
-          if (sWebsiteConfig) {
-            setWebsiteConfig(sWebsiteConfig);
-            localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(sWebsiteConfig));
-          } else {
-            const cachedWebsite = localStorage.getItem(KEYS.WEBSITE_CONFIG);
-            const loadedWebsite = cachedWebsite ? JSON.parse(cachedWebsite) : DEFAULT_WEBSITE_CONFIG;
-            setWebsiteConfig(loadedWebsite);
-            localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(loadedWebsite));
-          }
-
-          // Set fee variables
-          const loadedStudents = sStudents || INITIAL_STUDENTS;
-          setStudents(loadedStudents);
-          localStorage.setItem(KEYS.STUDENTS, JSON.stringify(loadedStudents));
-
-          const loadedFeeStructures = sFeeStructures || INITIAL_FEE_STRUCTURES;
-          setFeeStructures(loadedFeeStructures);
-          localStorage.setItem(KEYS.FEE_STRUCTURES, JSON.stringify(loadedFeeStructures));
-
-          const loadedInvoices = sInvoices || INITIAL_INVOICES;
-          setInvoices(loadedInvoices);
-          localStorage.setItem(KEYS.INVOICES, JSON.stringify(loadedInvoices));
-
-          const loadedPayments = sPayments || INITIAL_PAYMENTS;
-          setPayments(loadedPayments);
-          localStorage.setItem(KEYS.PAYMENTS, JSON.stringify(loadedPayments));
-
-          const loadedInstallments = sInstallmentPlans || INITIAL_INSTALLMENT_PLANS;
-          setInstallmentPlans(loadedInstallments);
-          localStorage.setItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(loadedInstallments));
-
-          const loadedFeeLogs = sFeeAuditLogs || INITIAL_FEE_AUDIT_LOGS;
-          setFeeAuditLogs(loadedFeeLogs);
-          localStorage.setItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(loadedFeeLogs));
-
-          // Set ERP variables
-          const loadedAdmissions = sAdmissions || INITIAL_ADMISSION_APPLICATIONS;
-          setAdmissionApplications(loadedAdmissions);
-          localStorage.setItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(loadedAdmissions));
-
-          const loadedExams = sExams || INITIAL_EXAM_MARKS;
-          setExamMarks(loadedExams);
-          localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(loadedExams));
-
-          // Set PoE variables
-          const loadedPoeDocs = sPoeDocuments || INITIAL_POE_DOCUMENTS;
-          setPoeDocuments(loadedPoeDocs);
-          localStorage.setItem(KEYS.POE_DOCUMENTS, JSON.stringify(loadedPoeDocs));
-
-          const loadedPoeNotifs = sPoeNotifications || INITIAL_POE_NOTIFICATIONS;
-          setPoeNotifications(loadedPoeNotifs);
-          localStorage.setItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(loadedPoeNotifs));
-
-          const loadedPoeRubrics = sPoeRubrics || INITIAL_POE_RUBRICS;
-          setPoeRubrics(loadedPoeRubrics);
-          localStorage.setItem(KEYS.POE_RUBRICS, JSON.stringify(loadedPoeRubrics));
-
-          // Set complete state in stateRef for immediate availability
-          stateRef.current = {
-            users: resolvedUsers,
-            departments: sDepts || INITIAL_DEPARTMENTS,
-            courses: sCourses || INITIAL_COURSES,
-            classrooms: sClassrooms || INITIAL_CLASSROOMS,
-            units: sUnits || INITIAL_UNITS,
-            courseGroups: sCourseGroups || [],
-            timetableEntries: sEntries || INITIAL_TIMETABLE_ENTRIES,
-            trainerPreferences: sPrefs || INITIAL_TRAINER_PREFERENCES,
-            academicSetting: sAcademic || DEFAULT_ACADEMIC_SETTING,
-            websiteConfig: sWebsiteConfig || DEFAULT_WEBSITE_CONFIG,
-            students: loadedStudents,
-            feeStructures: loadedFeeStructures,
-            invoices: loadedInvoices,
-            payments: loadedPayments,
-            installmentPlans: loadedInstallments,
-            feeAuditLogs: loadedFeeLogs,
-            admissionApplications: loadedAdmissions,
-            examMarks: loadedExams,
-            poeDocuments: loadedPoeDocs,
-            poeNotifications: loadedPoeNotifs,
-            poeRubrics: loadedPoeRubrics
-          };
-        } else {
-          // No state on server yet! Load local storage fallback or initial seed data, and save to server.
-          const storedUsers = localStorage.getItem(KEYS.USERS);
-          const storedDepts = localStorage.getItem(KEYS.DEPARTMENTS);
-          const storedCourses = localStorage.getItem(KEYS.COURSES);
-          const storedRooms = localStorage.getItem(KEYS.CLASSROOMS);
-          const storedUnits = localStorage.getItem(KEYS.UNITS);
-          const storedCourseGroups = localStorage.getItem(KEYS.COURSE_GROUPS);
-          const storedEntries = localStorage.getItem(KEYS.TIMETABLE);
-          const storedPrefs = localStorage.getItem(KEYS.PREFERENCES);
-          const storedAcademic = localStorage.getItem(KEYS.ACADEMIC);
-          const storedWebsite = localStorage.getItem(KEYS.WEBSITE_CONFIG);
-          const storedStudents = localStorage.getItem(KEYS.STUDENTS);
-          const storedFeeStructures = localStorage.getItem(KEYS.FEE_STRUCTURES);
-          const storedInvoices = localStorage.getItem(KEYS.INVOICES);
-          const storedPayments = localStorage.getItem(KEYS.PAYMENTS);
-          const storedInstallments = localStorage.getItem(KEYS.INSTALLMENT_PLANS);
-          const storedFeeLogs = localStorage.getItem(KEYS.FEE_AUDIT_LOGS);
-          const storedAdmissions = localStorage.getItem(KEYS.ADMISSION_APPLICATIONS);
-          const storedExams = localStorage.getItem(KEYS.EXAM_MARKS);
-          const storedPoeDocs = localStorage.getItem(KEYS.POE_DOCUMENTS);
-          const storedPoeNotifs = localStorage.getItem(KEYS.POE_NOTIFICATIONS);
-          const storedPoeRubrics = localStorage.getItem(KEYS.POE_RUBRICS);
-
-          localStorage.removeItem(KEYS.DEMO_ACCOUNTS_PURGED);
-          const parsedUsers = storedUsers ? JSON.parse(storedUsers) : null;
-          const rawLoadedUsers = (Array.isArray(parsedUsers) && parsedUsers.length > 1) ? parsedUsers : INITIAL_USERS;
-          let loadedUsers = rawLoadedUsers.map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : { ...u, isActive: true });
-          if (!loadedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
-            loadedUsers.unshift(INITIAL_USERS[0]);
-          }
-          for (const initU of INITIAL_USERS) {
-            if (!loadedUsers.some((u: any) => u.id === initU.id || u.username?.toLowerCase() === initU.username.toLowerCase())) {
-              loadedUsers.push(initU);
-            }
-          }
-          const loadedDepts = (storedDepts && JSON.parse(storedDepts).length > 0) ? JSON.parse(storedDepts) : INITIAL_DEPARTMENTS;
-          const loadedCourses = (storedCourses && JSON.parse(storedCourses).length > 0) ? JSON.parse(storedCourses) : INITIAL_COURSES;
-          const loadedRooms = (storedRooms && JSON.parse(storedRooms).length > 0) ? JSON.parse(storedRooms) : INITIAL_CLASSROOMS;
-          const loadedUnits = (storedUnits && JSON.parse(storedUnits).length > 0) ? JSON.parse(storedUnits) : INITIAL_UNITS;
-          const loadedCourseGroups = storedCourseGroups ? JSON.parse(storedCourseGroups) : [];
-          const loadedEntries = (storedEntries && JSON.parse(storedEntries).length > 0) ? JSON.parse(storedEntries) : INITIAL_TIMETABLE_ENTRIES;
-          const loadedPrefs = storedPrefs ? JSON.parse(storedPrefs) : INITIAL_TRAINER_PREFERENCES;
-          const loadedAcademic = storedAcademic ? JSON.parse(storedAcademic) : DEFAULT_ACADEMIC_SETTING;
-          const loadedWebsite = storedWebsite ? JSON.parse(storedWebsite) : DEFAULT_WEBSITE_CONFIG;
-          const loadedStudents = storedStudents ? JSON.parse(storedStudents) : INITIAL_STUDENTS;
-          const loadedFeeStructures = storedFeeStructures ? JSON.parse(storedFeeStructures) : INITIAL_FEE_STRUCTURES;
-          const loadedInvoices = storedInvoices ? JSON.parse(storedInvoices) : INITIAL_INVOICES;
-          const loadedPayments = storedPayments ? JSON.parse(storedPayments) : INITIAL_PAYMENTS;
-          const loadedInstallments = storedInstallments ? JSON.parse(storedInstallments) : INITIAL_INSTALLMENT_PLANS;
-          const loadedFeeLogs = storedFeeLogs ? JSON.parse(storedFeeLogs) : INITIAL_FEE_AUDIT_LOGS;
-          const loadedAdmissions = storedAdmissions ? JSON.parse(storedAdmissions) : INITIAL_ADMISSION_APPLICATIONS;
-          const loadedExams = storedExams ? JSON.parse(storedExams) : INITIAL_EXAM_MARKS;
-          const loadedPoeDocs = storedPoeDocs ? JSON.parse(storedPoeDocs) : INITIAL_POE_DOCUMENTS;
-          const loadedPoeNotifs = storedPoeNotifs ? JSON.parse(storedPoeNotifs) : INITIAL_POE_NOTIFICATIONS;
-          const loadedPoeRubrics = storedPoeRubrics ? JSON.parse(storedPoeRubrics) : INITIAL_POE_RUBRICS;
-
-          setUsers(loadedUsers);
-          setDepartments(loadedDepts);
-          setCourses(loadedCourses);
-          setClassroom(loadedRooms);
-          setUnits(loadedUnits);
-          setCourseGroups(loadedCourseGroups);
-          setTimetableEntries(loadedEntries);
-          setTrainerPreferences(loadedPrefs);
-          setAcademicSetting(loadedAcademic);
-          setWebsiteConfig(loadedWebsite);
-          setStudents(loadedStudents);
-          setFeeStructures(loadedFeeStructures);
-          setInvoices(loadedInvoices);
-          setPayments(loadedPayments);
-          setInstallmentPlans(loadedInstallments);
-          setFeeAuditLogs(loadedFeeLogs);
-          setAdmissionApplications(loadedAdmissions);
-          setExamMarks(loadedExams);
-          setPoeDocuments(loadedPoeDocs);
-          setPoeNotifications(loadedPoeNotifs);
-          setPoeRubrics(loadedPoeRubrics);
-
-          // Save fallback/seeded to localStorage
-          localStorage.setItem(KEYS.USERS, JSON.stringify(loadedUsers));
-          localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(loadedDepts));
-          localStorage.setItem(KEYS.COURSES, JSON.stringify(loadedCourses));
-          localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(loadedRooms));
-          localStorage.setItem(KEYS.UNITS, JSON.stringify(loadedUnits));
-          localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(loadedCourseGroups));
-          localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(loadedEntries));
-          localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(loadedPrefs));
-          localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(loadedAcademic));
-          localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(loadedWebsite));
-          localStorage.setItem(KEYS.STUDENTS, JSON.stringify(loadedStudents));
-          localStorage.setItem(KEYS.FEE_STRUCTURES, JSON.stringify(loadedFeeStructures));
-          localStorage.setItem(KEYS.INVOICES, JSON.stringify(loadedInvoices));
-          localStorage.setItem(KEYS.PAYMENTS, JSON.stringify(loadedPayments));
-          localStorage.setItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(loadedInstallments));
-          localStorage.setItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(loadedFeeLogs));
-          localStorage.setItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(loadedAdmissions));
-          localStorage.setItem(KEYS.EXAM_MARKS, JSON.stringify(loadedExams));
-          localStorage.setItem(KEYS.POE_DOCUMENTS, JSON.stringify(loadedPoeDocs));
-          localStorage.setItem(KEYS.POE_NOTIFICATIONS, JSON.stringify(loadedPoeNotifs));
-          localStorage.setItem(KEYS.POE_RUBRICS, JSON.stringify(loadedPoeRubrics));
-
-          // Initialize local stateRef for immediate availability
-          const initialState = {
-            users: loadedUsers,
-            departments: loadedDepts,
-            courses: loadedCourses,
-            classrooms: loadedRooms,
-            units: loadedUnits,
-            courseGroups: loadedCourseGroups,
-            timetableEntries: loadedEntries,
-            trainerPreferences: loadedPrefs,
-            academicSetting: loadedAcademic,
-            websiteConfig: loadedWebsite,
-            students: loadedStudents,
-            feeStructures: loadedFeeStructures,
-            invoices: loadedInvoices,
-            payments: loadedPayments,
-            installmentPlans: loadedInstallments,
-            feeAuditLogs: loadedFeeLogs,
-            admissionApplications: loadedAdmissions,
-            examMarks: loadedExams,
-            poeDocuments: loadedPoeDocs,
-            poeNotifications: loadedPoeNotifs,
-            poeRubrics: loadedPoeRubrics
-          };
-          stateRef.current = initialState;
-          // CRITICAL: NEVER push initialState to the database on boot!
-          // This guarantees that initial fallback seeds NEVER overwrite existing cloud timetables when published or opening new tabs.
+          if (Array.isArray(sDepts) && sDepts.length > 0) resolvedDepts = sDepts;
+          if (Array.isArray(sCourses) && sCourses.length > 0) resolvedCourses = sCourses;
+          if (Array.isArray(sClassrooms) && sClassrooms.length > 0) resolvedClassrooms = sClassrooms;
+          if (Array.isArray(sUnits) && sUnits.length > 0) resolvedUnits = sUnits;
+          if (Array.isArray(sCourseGroups)) resolvedCourseGroups = sCourseGroups;
+          if (Array.isArray(sEntries)) resolvedEntries = sEntries;
+          if (Array.isArray(sPrefs) && sPrefs.length > 0) resolvedPrefs = sPrefs;
+          if (sAcademic) resolvedAcademic = sAcademic;
+          if (sWebsiteConfig) resolvedWebsite = sWebsiteConfig;
+          if (Array.isArray(sStudents)) resolvedStudents = sStudents;
+          if (Array.isArray(sFeeStructures)) resolvedFeeStructures = sFeeStructures;
+          if (Array.isArray(sInvoices)) resolvedInvoices = sInvoices;
+          if (Array.isArray(sPayments)) resolvedPayments = sPayments;
+          if (Array.isArray(sInstallmentPlans)) resolvedInstallments = sInstallmentPlans;
+          if (Array.isArray(sFeeAuditLogs)) resolvedFeeLogs = sFeeAuditLogs;
+          if (Array.isArray(sAdmissions)) resolvedAdmissions = sAdmissions;
+          if (Array.isArray(sExams)) resolvedExams = sExams;
+          if (Array.isArray(sPoeDocuments)) resolvedPoeDocs = sPoeDocuments;
+          if (Array.isArray(sPoeNotifications)) resolvedPoeNotifs = sPoeNotifications;
+          if (Array.isArray(sPoeRubrics)) resolvedPoeRubrics = sPoeRubrics;
         }
 
+        // Apply to React state
+        setUsers(resolvedUsers);
+        setDepartments(resolvedDepts);
+        setCourses(resolvedCourses);
+        setClassroom(resolvedClassrooms);
+        setUnits(resolvedUnits);
+        setCourseGroups(resolvedCourseGroups);
+        setTimetableEntries(resolvedEntries);
+        setTrainerPreferences(resolvedPrefs);
+        setAcademicSetting(resolvedAcademic);
+        setWebsiteConfig(resolvedWebsite);
+        setStudents(resolvedStudents);
+        setFeeStructures(resolvedFeeStructures);
+        setInvoices(resolvedInvoices);
+        setPayments(resolvedPayments);
+        setInstallmentPlans(resolvedInstallments);
+        setFeeAuditLogs(resolvedFeeLogs);
+        setAdmissionApplications(resolvedAdmissions);
+        setExamMarks(resolvedExams);
+        setPoeDocuments(resolvedPoeDocs);
+        setPoeNotifications(resolvedPoeNotifs);
+        setPoeRubrics(resolvedPoeRubrics);
+
+        stateRef.current = {
+          users: resolvedUsers,
+          departments: resolvedDepts,
+          courses: resolvedCourses,
+          classrooms: resolvedClassrooms,
+          units: resolvedUnits,
+          courseGroups: resolvedCourseGroups,
+          timetableEntries: resolvedEntries,
+          trainerPreferences: resolvedPrefs,
+          academicSetting: resolvedAcademic,
+          websiteConfig: resolvedWebsite,
+          students: resolvedStudents,
+          feeStructures: resolvedFeeStructures,
+          invoices: resolvedInvoices,
+          payments: resolvedPayments,
+          installmentPlans: resolvedInstallments,
+          feeAuditLogs: resolvedFeeLogs,
+          admissionApplications: resolvedAdmissions,
+          examMarks: resolvedExams,
+          poeDocuments: resolvedPoeDocs,
+          poeNotifications: resolvedPoeNotifs,
+          poeRubrics: resolvedPoeRubrics
+        };
+
         setSyncStatus('synced');
-        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        setLastSavedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (Google Cloud Synced)');
 
         // Validate Firestore connectivity in background (Firebase skill constraint)
         testConnection().catch(() => {});
 
-        // Auto-restore logged in user session if active
-        const storedCurrentUser = localStorage.getItem(KEYS.CURRENT_USER);
-        if (storedCurrentUser) {
-          const parsedUser = JSON.parse(storedCurrentUser);
-          // Latest users list
-          const latestUsersStr = localStorage.getItem(KEYS.USERS);
-          const latestUsers = latestUsersStr ? JSON.parse(latestUsersStr) : INITIAL_USERS;
-          const verifiedUser = latestUsers.find((u: any) => u.id === parsedUser.id);
-          if (verifiedUser && verifiedUser.isActive) {
-            setCurrentUser(verifiedUser);
-          } else {
-            localStorage.removeItem(KEYS.CURRENT_USER);
-          }
-        }
+        // Browser caching is strictly disabled - wipe any browser cache
+        clearLegacyLocalStorage();
       } catch (e) {
-        console.error("Server synchronization initialization failed, fallback to local:", e);
-        // Fallback completely to local storage
-        try {
-          const storedUsers = localStorage.getItem(KEYS.USERS);
-          const storedDepts = localStorage.getItem(KEYS.DEPARTMENTS);
-          const storedCourses = localStorage.getItem(KEYS.COURSES);
-          const storedRooms = localStorage.getItem(KEYS.CLASSROOMS);
-          const storedUnits = localStorage.getItem(KEYS.UNITS);
-          const storedEntries = localStorage.getItem(KEYS.TIMETABLE);
-          const storedPrefs = localStorage.getItem(KEYS.PREFERENCES);
-          const storedAcademic = localStorage.getItem(KEYS.ACADEMIC);
-          const storedStudents = localStorage.getItem(KEYS.STUDENTS);
-          const storedFeeStructures = localStorage.getItem(KEYS.FEE_STRUCTURES);
-          const storedInvoices = localStorage.getItem(KEYS.INVOICES);
-          const storedPayments = localStorage.getItem(KEYS.PAYMENTS);
-          const storedInstallments = localStorage.getItem(KEYS.INSTALLMENT_PLANS);
-          const storedFeeLogs = localStorage.getItem(KEYS.FEE_AUDIT_LOGS);
-          const storedAdmissions = localStorage.getItem(KEYS.ADMISSION_APPLICATIONS);
-          const storedExams = localStorage.getItem(KEYS.EXAM_MARKS);
-          const storedCurrentUser = localStorage.getItem(KEYS.CURRENT_USER);
-
-          const isPurged = localStorage.getItem(KEYS.DEMO_ACCOUNTS_PURGED) === 'true';
-          let fallbackUsers = (storedUsers ? JSON.parse(storedUsers) : (isPurged ? [INITIAL_USERS[0]] : INITIAL_USERS)).map((u: any) => u.username.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : u);
-          if (isPurged) {
-            fallbackUsers = fallbackUsers.filter((u: any) => !isDemoAccount(u));
-          }
-          setUsers(fallbackUsers);
-          setDepartments(storedDepts ? JSON.parse(storedDepts) : INITIAL_DEPARTMENTS);
-          setCourses(storedCourses ? JSON.parse(storedCourses) : INITIAL_COURSES);
-          setClassroom(storedRooms ? JSON.parse(storedRooms) : INITIAL_CLASSROOMS);
-          setUnits(storedUnits ? JSON.parse(storedUnits) : INITIAL_UNITS);
-          setTimetableEntries(storedEntries ? JSON.parse(storedEntries) : INITIAL_TIMETABLE_ENTRIES);
-          setTrainerPreferences(storedPrefs ? JSON.parse(storedPrefs) : INITIAL_TRAINER_PREFERENCES);
-          setAcademicSetting(storedAcademic ? JSON.parse(storedAcademic) : DEFAULT_ACADEMIC_SETTING);
-          setStudents(storedStudents ? JSON.parse(storedStudents) : INITIAL_STUDENTS);
-          setFeeStructures(storedFeeStructures ? JSON.parse(storedFeeStructures) : INITIAL_FEE_STRUCTURES);
-          setInvoices(storedInvoices ? JSON.parse(storedInvoices) : INITIAL_INVOICES);
-          setPayments(storedPayments ? JSON.parse(storedPayments) : INITIAL_PAYMENTS);
-          setInstallmentPlans(storedInstallments ? JSON.parse(storedInstallments) : INITIAL_INSTALLMENT_PLANS);
-          setFeeAuditLogs(storedFeeLogs ? JSON.parse(storedFeeLogs) : INITIAL_FEE_AUDIT_LOGS);
-          setAdmissionApplications(storedAdmissions ? JSON.parse(storedAdmissions) : INITIAL_ADMISSION_APPLICATIONS);
-          setExamMarks(storedExams ? JSON.parse(storedExams) : INITIAL_EXAM_MARKS);
-
-          if (storedCurrentUser) {
-            const parsedUser = JSON.parse(storedCurrentUser);
-            const verifiedUser = fallbackUsers.find((u: any) => u.id === parsedUser.id);
-            if (verifiedUser && verifiedUser.isActive) {
-              setCurrentUser(verifiedUser);
-            } else {
-              localStorage.removeItem(KEYS.CURRENT_USER);
-            }
-          }
-        } catch (innerError) {
-          console.error("Local storage fallback also failed:", innerError);
-        }
+        console.error("Cloud synchronization initialization notice:", e);
+        setSyncStatus('error');
+        setSyncErrorMessage("Could not reach Cloud database. Changes will be synchronized as soon as connection is re-established.");
       } finally {
         setIsInitialized(true);
       }
@@ -938,7 +666,6 @@ export default function App() {
   };
 
   const handleRestoreInstitutionalData = async () => {
-    localStorage.removeItem(KEYS.DEMO_ACCOUNTS_PURGED);
     const restoredUsers = [...INITIAL_USERS];
     const restoredDepts = [...INITIAL_DEPARTMENTS];
     const restoredCourses = [...INITIAL_COURSES];
@@ -1043,49 +770,81 @@ export default function App() {
     const deduplicated = deduplicateTimetableEntries(updated);
     setTimetableEntries(deduplicated);
     stateRef.current.timetableEntries = deduplicated;
-    safeSetItem(KEYS.TIMETABLE, JSON.stringify(deduplicated));
     // Immediately broadcast to other open tabs on this machine (<1ms)
     broadcastLocalUpdate('timetable', {
       timetableEntries: deduplicated,
       units: stateRef.current.units,
       courseGroups: stateRef.current.courseGroups
     });
-    // Dedicated instant save for timetable to ensure zero latency in cloud
+    // Dedicated instant save for timetable directly to Google Cloud
     saveTimetableDirectly(deduplicated, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
   };
 
-  // Dedicated atomic slot deletion with instant optimistic state update and reliable persistence
-  const handleDeleteTimetableSlot = async (idOrIds: string | string[]): Promise<boolean> => {
+  // Dedicated atomic slot deletion with instant optimistic state update and single Google Cloud persistence
+  const handleDeleteTimetableSlot = async (idOrIds: string | string[]): Promise<SlotSaveResult> => {
     const idArray = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
     const ids = new Set(idArray);
-    const current = stateRef.current.timetableEntries || timetableEntries;
-    const remaining = current.filter(e => !ids.has(e.id));
+    const previousEntries = [...(stateRef.current.timetableEntries || timetableEntries)];
+    const remaining = previousEntries.filter(e => !ids.has(e.id));
     
     // 1. Instant local UI update
     setTimetableEntries(remaining);
     stateRef.current.timetableEntries = remaining;
     safeSetItem(KEYS.TIMETABLE, JSON.stringify(remaining));
 
-    // 2. Broadcast to other tabs
+    // 2. Broadcast to other tabs immediately
     broadcastLocalUpdate('timetable', {
       timetableEntries: remaining,
       units: stateRef.current.units,
       courseGroups: stateRef.current.courseGroups
     });
 
-    // 3. Authoritative server delete
-    saveTimetableDirectly(remaining, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
+    // 3. Authoritative Google Cloud Firestore persistence (Single place)
     try {
-      const res = await deleteSlotDirectly(idArray);
-      if (res.success && Array.isArray(res.timetableEntries)) {
-        setTimetableEntries(res.timetableEntries);
-        stateRef.current.timetableEntries = res.timetableEntries;
-        safeSetItem(KEYS.TIMETABLE, JSON.stringify(res.timetableEntries));
+      const res = await deleteSlotDirectly(idArray, remaining, stateRef.current.units, stateRef.current.courseGroups);
+      if (res && res.success) {
+        const authoritativeEntries = Array.isArray(res.timetableEntries) ? res.timetableEntries : remaining;
+        setTimetableEntries(authoritativeEntries);
+        stateRef.current.timetableEntries = authoritativeEntries;
+        safeSetItem(KEYS.TIMETABLE, JSON.stringify(authoritativeEntries));
+        setSyncStatus('synced');
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const targetLabel = res.firestoreSaved ? 'Firestore ✓ & Server ✓' : 'Cloud Server ✓';
+        setLastSavedTime(`${timeStr} (${targetLabel})`);
+        return {
+          success: true,
+          timetableEntries: authoritativeEntries,
+          firestoreSaved: res.firestoreSaved,
+          serverSaved: res.serverSaved
+        };
+      } else {
+        // Revert on failure
+        console.error('[Slot Delete] Deletion failed, reverting screen');
+        setTimetableEntries(previousEntries);
+        stateRef.current.timetableEntries = previousEntries;
+        safeSetItem(KEYS.TIMETABLE, JSON.stringify(previousEntries));
+        setSyncStatus('error');
+        return {
+          success: false,
+          timetableEntries: previousEntries,
+          firestoreSaved: false,
+          serverSaved: false,
+          error: 'Save failed – changes not stored'
+        };
       }
-      return true;
-    } catch (e) {
-      console.warn('[Slot Delete] Error in cloud sync:', e);
-      return false;
+    } catch (e: any) {
+      console.warn('[Slot Delete] Error during sync, reverting:', e);
+      setTimetableEntries(previousEntries);
+      stateRef.current.timetableEntries = previousEntries;
+      safeSetItem(KEYS.TIMETABLE, JSON.stringify(previousEntries));
+      setSyncStatus('error');
+      return {
+        success: false,
+        timetableEntries: previousEntries,
+        firestoreSaved: false,
+        serverSaved: false,
+        error: e?.message || 'Save failed – changes not stored'
+      };
     }
   };
 
@@ -1094,9 +853,10 @@ export default function App() {
     entryOrEntries: TimetableEntry | TimetableEntry[],
     nextUnits?: Unit[],
     nextGroups?: CourseGroup[]
-  ): Promise<boolean> => {
+  ): Promise<SlotSaveResult> => {
     const entriesToSave = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
-    let current = [...(stateRef.current.timetableEntries || timetableEntries)];
+    const previousEntries = [...(stateRef.current.timetableEntries || timetableEntries)];
+    let current = [...previousEntries];
 
     for (const item of entriesToSave) {
       current = current.filter(e => {
@@ -1117,7 +877,7 @@ export default function App() {
 
     const cleanEntries = deduplicateTimetableEntries(current);
 
-    // 1. Instant local UI update
+    // 1. Instant local optimistic screen update
     setTimetableEntries(cleanEntries);
     stateRef.current.timetableEntries = cleanEntries;
     safeSetItem(KEYS.TIMETABLE, JSON.stringify(cleanEntries));
@@ -1133,26 +893,61 @@ export default function App() {
       safeSetItem(KEYS.COURSE_GROUPS, JSON.stringify(nextGroups));
     }
 
-    // 2. Broadcast to other tabs
+    // 2. Broadcast to other tabs immediately
     broadcastLocalUpdate('timetable', {
       timetableEntries: cleanEntries,
       units: stateRef.current.units,
       courseGroups: stateRef.current.courseGroups
     });
 
-    // 3. Authoritative server save
-    saveTimetableDirectly(cleanEntries, stateRef.current.units, stateRef.current.courseGroups, true).catch(() => {});
+    // 3. Authoritative multi-tier persistence (Server Disk + Cloud Firestore)
     try {
-      const res = await saveSlotDirectly(entriesToSave, nextUnits, nextGroups);
-      if (res.success && Array.isArray(res.timetableEntries)) {
-        setTimetableEntries(res.timetableEntries);
-        stateRef.current.timetableEntries = res.timetableEntries;
-        safeSetItem(KEYS.TIMETABLE, JSON.stringify(res.timetableEntries));
+      const res = await saveSlotDirectly(entriesToSave, cleanEntries, stateRef.current.units, stateRef.current.courseGroups);
+      if (res && res.success) {
+        // Confirmed database write! Update local state with the confirmed saved version
+        const authoritativeEntries = Array.isArray(res.timetableEntries) && res.timetableEntries.length > 0 ? res.timetableEntries : cleanEntries;
+        setTimetableEntries(authoritativeEntries);
+        stateRef.current.timetableEntries = authoritativeEntries;
+        safeSetItem(KEYS.TIMETABLE, JSON.stringify(authoritativeEntries));
+        setSyncStatus('synced');
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const targetLabel = res.firestoreSaved ? 'Firestore ✓ & Server ✓' : 'Cloud Server ✓';
+        setLastSavedTime(`${timeStr} (${targetLabel})`);
+        return {
+          success: true,
+          timetableEntries: authoritativeEntries,
+          firestoreSaved: res.firestoreSaved,
+          serverSaved: res.serverSaved,
+          quotaExceeded: res.quotaExceeded
+        };
+      } else {
+        // Database write failed! Revert optimistic screen update immediately
+        console.error('[Slot Save] Database write failed, reverting optimistic screen update');
+        setTimetableEntries(previousEntries);
+        stateRef.current.timetableEntries = previousEntries;
+        safeSetItem(KEYS.TIMETABLE, JSON.stringify(previousEntries));
+        setSyncStatus('error');
+        return {
+          success: false,
+          timetableEntries: previousEntries,
+          firestoreSaved: false,
+          serverSaved: false,
+          error: 'Save failed – changes not stored'
+        };
       }
-      return true;
-    } catch (e) {
-      console.warn('[Slot Save] Error in cloud sync:', e);
-      return false;
+    } catch (e: any) {
+      console.error('[Slot Save] Exception during sync, reverting screen update:', e);
+      setTimetableEntries(previousEntries);
+      stateRef.current.timetableEntries = previousEntries;
+      safeSetItem(KEYS.TIMETABLE, JSON.stringify(previousEntries));
+      setSyncStatus('error');
+      return {
+        success: false,
+        timetableEntries: previousEntries,
+        firestoreSaved: false,
+        serverSaved: false,
+        error: e?.message || 'Save failed – changes not stored'
+      };
     }
   };
 
@@ -1289,7 +1084,6 @@ export default function App() {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
-    localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(user));
     if (['quality_assurance', 'assessor', 'trainee', 'student'].includes(user.role)) {
       setActiveWorkspace('portfolio');
     }
@@ -1297,7 +1091,6 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem(KEYS.CURRENT_USER);
   };
 
   // FULL BACKUP IMPORT STATE
@@ -1324,17 +1117,6 @@ export default function App() {
     setAcademicSetting(updatedAcademicSetting);
     setWebsiteConfig(updatedWebsiteConfig);
 
-    localStorage.setItem(KEYS.USERS, JSON.stringify(updatedUsers));
-    localStorage.setItem(KEYS.DEPARTMENTS, JSON.stringify(updatedDepartments));
-    localStorage.setItem(KEYS.COURSES, JSON.stringify(updatedCourses));
-    localStorage.setItem(KEYS.CLASSROOMS, JSON.stringify(updatedClassrooms));
-    localStorage.setItem(KEYS.UNITS, JSON.stringify(updatedUnits));
-    localStorage.setItem(KEYS.COURSE_GROUPS, JSON.stringify(updatedCourseGroups));
-    localStorage.setItem(KEYS.TIMETABLE, JSON.stringify(updatedTimetableEntries));
-    localStorage.setItem(KEYS.PREFERENCES, JSON.stringify(updatedTrainerPreferences));
-    localStorage.setItem(KEYS.ACADEMIC, JSON.stringify(updatedAcademicSetting));
-    localStorage.setItem(KEYS.WEBSITE_CONFIG, JSON.stringify(updatedWebsiteConfig));
-
     // Also update logged-in user if changed
     if (currentUser) {
       const match = updatedUsers.find(u => u.id === currentUser.id);
@@ -1343,7 +1125,6 @@ export default function App() {
           handleLogout();
         } else {
           setCurrentUser(match);
-          localStorage.setItem(KEYS.CURRENT_USER, JSON.stringify(match));
         }
       }
     }
@@ -1744,7 +1525,7 @@ export default function App() {
                   title="Cloud Sync Pending / Saved Locally. Click to retry syncing directly to Cloud Firestore."
                 >
                   <CloudOff className="w-3 h-3 text-amber-600" />
-                  <span>Cloud Offline • Saved Locally (Click to sync)</span>
+                  <span>Cloud Offline • Reconnecting to Google Cloud...</span>
                 </button>
               ) : (
                 <button 
@@ -1752,12 +1533,12 @@ export default function App() {
                     await saveStateToDatabaseImmediately();
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:text-emerald-900 text-[10.5px] font-semibold shadow-3xs cursor-pointer transition-all"
-                  title={lastSavedTime ? `Synchronized to Cloud Firestore & Server at ${lastSavedTime}. Click to re-sync now.` : "Cloud Database Connected & Synced. Click to save now."}
+                  title={lastSavedTime ? `Synchronized to Google Cloud Firestore at ${lastSavedTime}. Browser cache disabled.` : "Google Cloud Firestore Connected & Synced."}
                 >
                   <Cloud className="w-3.5 h-3.5 text-emerald-600" />
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
-                  <span>Cloud Synced</span>
-                  {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime.replace(' (Cloud Synced)', '')})</span>}
+                  <span>Google Cloud Only</span>
+                  {lastSavedTime && <span className="text-emerald-700/80 text-[9.5px]">({lastSavedTime.replace(' (Google Cloud Synced)', '').replace(' (Cloud Synced)', '')})</span>}
                 </button>
               )}
             </div>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, CourseGroup,
-  WebsiteConfig
+  WebsiteConfig, SlotSaveResult
 } from '../types';
 import { TIME_SLOTS, isDemoAccount } from '../data/seedData';
 import { DEFAULT_WEBSITE_CONFIG } from '../data/websiteData';
@@ -34,8 +34,8 @@ interface AdminDashboardProps {
   onUpdateAcademicSetting: (setting: AcademicSetting) => void;
   onUpdateCourseGroups?: (groups: CourseGroup[]) => void;
   onUpdateTimetableEntries: (entries: TimetableEntry[]) => void;
-  onDeleteTimetableSlot?: (idOrIds: string | string[]) => Promise<boolean>;
-  onSaveTimetableSlot?: (entryOrEntries: TimetableEntry | TimetableEntry[], nextUnits?: Unit[], nextGroups?: CourseGroup[]) => Promise<boolean>;
+  onDeleteTimetableSlot?: (idOrIds: string | string[]) => Promise<SlotSaveResult | boolean>;
+  onSaveTimetableSlot?: (entryOrEntries: TimetableEntry | TimetableEntry[], nextUnits?: Unit[], nextGroups?: CourseGroup[]) => Promise<SlotSaveResult | boolean>;
   onUpdateUnits: (units: Unit[]) => void;
   onImportState: (fullState: any) => void;
   onLogout: () => void;

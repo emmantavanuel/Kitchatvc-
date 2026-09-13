@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
-  User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, DayOfWeek, CourseGroup 
+  User, Department, Course, Classroom, Unit, TimetableEntry, AcademicSetting, SchedulingConflict, DayOfWeek, CourseGroup, SlotSaveResult 
 } from '../types';
 import { TIME_SLOTS } from '../data/seedData';
 import { 
@@ -27,8 +27,8 @@ interface HodDashboardProps {
   academicSetting: AcademicSetting;
   onUpdateCourseGroups?: (groups: CourseGroup[]) => void;
   onUpdateTimetableEntries: (entries: TimetableEntry[]) => void;
-  onDeleteTimetableSlot?: (idOrIds: string | string[]) => Promise<boolean>;
-  onSaveTimetableSlot?: (entryOrEntries: TimetableEntry | TimetableEntry[], nextUnits?: Unit[], nextGroups?: CourseGroup[]) => Promise<boolean>;
+  onDeleteTimetableSlot?: (idOrIds: string | string[]) => Promise<SlotSaveResult | boolean>;
+  onSaveTimetableSlot?: (entryOrEntries: TimetableEntry | TimetableEntry[], nextUnits?: Unit[], nextGroups?: CourseGroup[]) => Promise<SlotSaveResult | boolean>;
   onUpdateUnits: (units: Unit[]) => void;
   onUpdateTrainerPreferences: (prefs: any[]) => void;
   onUpdateCourses: (courses: Course[]) => void;
@@ -292,14 +292,32 @@ export default function HodDashboard({
   const [quickSyncTargetCourseIds, setQuickSyncTargetCourseIds] = useState<string[]>([]);
 
   // Toast / Alert banner feedback state
-  const [syncBannerMsg, setSyncBannerMsg] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
+  const [syncBannerMsg, setSyncBannerMsg] = useState<{ 
+    text: string; 
+    type: 'success' | 'info' | 'error' | 'saving';
+    details?: string;
+  } | null>(null);
+
+  // Indicators for currently saving slot or recently saved slot
+  const [savingSlotKey, setSavingSlotKey] = useState<string | null>(null);
+  const [recentlySavedSlotKey, setRecentlySavedSlotKey] = useState<string | null>(null);
+  const feedbackTimerRef = useRef<any>(null);
 
   // Helper to show transient feedback
-  const triggerFeedback = (text: string, type: 'success' | 'info' = 'success') => {
-    setSyncBannerMsg({ text, type });
-    setTimeout(() => {
-      setSyncBannerMsg(null);
-    }, 4500);
+  const triggerFeedback = (
+    text: string, 
+    type: 'success' | 'info' | 'error' | 'saving' = 'success',
+    details?: string
+  ) => {
+    if (feedbackTimerRef.current) {
+      clearTimeout(feedbackTimerRef.current);
+    }
+    setSyncBannerMsg({ text, type, details });
+    if (type !== 'saving') {
+      feedbackTimerRef.current = setTimeout(() => {
+        setSyncBannerMsg(null);
+      }, type === 'error' ? 7000 : 4500);
+    }
   };
 
   // Course Units form state
@@ -440,7 +458,7 @@ export default function HodDashboard({
     setShowEditorModal(true);
   };
 
-  const handleSaveEntry = (e: React.FormEvent) => {
+  const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     setEditorError(null);
     if (!editorForm.unitId || !editorForm.trainerId || !editorForm.classroomId) {
@@ -610,28 +628,87 @@ export default function HodDashboard({
       onUpdateUnits(nextUnits);
     }
 
-    // 1. Optimistic UI update
-    onUpdateTimetableEntries(nextEntries);
+    // 1. Keep previous snapshot for clean rollback if database write fails
+    const previousEntries = [...timetableEntries];
 
-    // 2. Authoritative save across layers
-    if (onSaveTimetableSlot) {
-      onSaveTimetableSlot(createdOrUpdatedEntries, nextUnits, nextCourseGroups);
-    } else {
-      saveSlotDirectly(createdOrUpdatedEntries, nextUnits, nextCourseGroups).catch(() => {});
-      saveTimetableDirectly(nextEntries, nextUnits, nextCourseGroups, true).catch(() => {});
-    }
+    // 2. Immediately update local screen (Optimistic UI)
+    onUpdateTimetableEntries(nextEntries);
     setShowEditorModal(false);
 
+    const slotKey = `${editorCourseId}_${selectedDay}_${selectedSlotId}`;
+    setSavingSlotKey(slotKey);
+    const targetSlotObj = timeSlots.find(s => s.id === selectedSlotId);
+    const slotTimeLabel = targetSlotObj?.label || `Slot ${selectedSlotId}`;
     const groupLabel = assignedGroupName ? ` [${assignedGroupName}]` : '';
-    if (targetCourseIds.length > 1) {
-      triggerFeedback(`✨ Unit "${selectedUnit.code} - ${selectedUnit.name}"${groupLabel} applied across ${targetCourseIds.length} course levels for ${selectedDay} Slot ${selectedSlotId}! (Saved to database)`);
-    } else {
-      triggerFeedback(`✨ Slot saved: "${selectedUnit.code}"${groupLabel} on ${selectedDay} Slot ${selectedSlotId}! (Saved to database)`);
+
+    const isReschedule = editingEntry && (editingEntry.day !== selectedDay || editingEntry.slotId !== selectedSlotId);
+    const originalSlotObj = editingEntry ? timeSlots.find(s => s.id === editingEntry.slotId) : null;
+    const originalSlotLabel = originalSlotObj?.label || (editingEntry ? `Slot ${editingEntry.slotId}` : '');
+
+    triggerFeedback(
+      `Saving schedule: ${selectedUnit.code} on ${selectedDay} (${slotTimeLabel})...`,
+      'saving'
+    );
+
+    // 3. Save to Firestore & Cloud Server
+    try {
+      let res: any;
+      if (onSaveTimetableSlot) {
+        res = await onSaveTimetableSlot(createdOrUpdatedEntries, nextUnits, nextCourseGroups);
+      } else {
+        res = await saveSlotDirectly(createdOrUpdatedEntries, nextEntries, nextUnits, nextCourseGroups);
+        await saveTimetableDirectly(nextEntries, nextUnits, nextCourseGroups, true);
+      }
+
+      // 4. Confirm database write succeeded
+      const isSuccess = res === true || (typeof res === 'object' && res !== null && (res as any).success === true);
+
+      if (isSuccess) {
+        // 5. Update local screen with the confirmed saved version
+        if (typeof res === 'object' && res !== null && Array.isArray((res as any).timetableEntries) && (res as any).timetableEntries.length > 0) {
+          onUpdateTimetableEntries((res as any).timetableEntries);
+        }
+        setSavingSlotKey(null);
+        setRecentlySavedSlotKey(slotKey);
+        setTimeout(() => setRecentlySavedSlotKey(null), 4000);
+
+        // 6. Show "Saved ✓"
+        let successMsg = `Saved ✓ ${selectedUnit.code}${groupLabel} on ${selectedDay} (${slotTimeLabel})`;
+        if (isReschedule) {
+          successMsg = `Saved ✓ Rescheduled: ${editingEntry.day} ${originalSlotLabel} → ${selectedDay} ${slotTimeLabel}`;
+        }
+        triggerFeedback(
+          successMsg,
+          'success',
+          res && typeof res === 'object' && res.firestoreSaved ? 'Saved to Cloud Firestore & Server' : 'Saved to Cloud Server'
+        );
+      } else {
+        // 7. If saving fails, show "Save failed – changes not stored" instead of pretending everything worked
+        console.error('[Slot Save Error] Database write failed, rolling back screen');
+        onUpdateTimetableEntries(previousEntries);
+        setSavingSlotKey(null);
+        setRecentlySavedSlotKey(null);
+        triggerFeedback(
+          'Save failed – changes not stored',
+          'error',
+          `Could not confirm database write for ${selectedDay} (${slotTimeLabel}). Screen reverted to saved version.`
+        );
+      }
+    } catch (err: any) {
+      console.error('[Slot Save Exception] Rolling back screen:', err);
+      onUpdateTimetableEntries(previousEntries);
+      setSavingSlotKey(null);
+      setRecentlySavedSlotKey(null);
+      triggerFeedback(
+        'Save failed – changes not stored',
+        'error',
+        `Network error: ${err?.message || 'Database write unsuccessful'}. Screen reverted.`
+      );
     }
   };
 
   // DRAG & DROP QUICK RESCHEDULE / MOVE HANDLER
-  const handleDropOnSlot = (
+  const handleDropOnSlot = async (
     e: React.DragEvent,
     targetDay: DayOfWeek,
     targetSlotId: number,
@@ -652,6 +729,55 @@ export default function HodDashboard({
 
       // If already on the same day and slot, do nothing
       if (draggedEntry.day === targetDay && draggedEntry.slotId === targetSlotId) return;
+
+      const targetSlotObj = timeSlots.find(ts => ts.id === targetSlotId);
+      const targetSlotLabel = targetSlotObj?.label || `Slot ${targetSlotId}`;
+      const originalSlotObj = timeSlots.find(ts => ts.id === draggedEntry.slotId);
+      const originalSlotLabel = originalSlotObj?.label || `Slot ${draggedEntry.slotId}`;
+      const unitObj = units.find(u => u.id === draggedEntry.unitId);
+      const unitTitle = unitObj?.code || 'Class';
+
+      // 1. VALIDATE THE CHANGE
+      // Check trainer conflict at target slot
+      if (draggedEntry.trainerId) {
+        const conflictingTrainerEntry = timetableEntries.find(entry =>
+          entry.id !== draggedEntry.id &&
+          entry.day === targetDay &&
+          entry.slotId === targetSlotId &&
+          entry.trainerId === draggedEntry.trainerId
+        );
+        if (conflictingTrainerEntry) {
+          const conflictingTrainer = users.find(u => u.id === draggedEntry.trainerId);
+          const confirmMove = window.confirm(
+            `⚠️ Scheduling Conflict Warning:\nTrainer ${conflictingTrainer?.name || 'Assigned Trainer'} is already scheduled for another class on ${targetDay} (${targetSlotLabel}).\n\nDo you want to proceed and reschedule this class anyway?`
+          );
+          if (!confirmMove) {
+            return;
+          }
+        }
+      }
+
+      // Check classroom conflict at target slot
+      if (draggedEntry.classroomId) {
+        const conflictingRoomEntry = timetableEntries.find(entry =>
+          entry.id !== draggedEntry.id &&
+          entry.day === targetDay &&
+          entry.slotId === targetSlotId &&
+          entry.classroomId === draggedEntry.classroomId
+        );
+        if (conflictingRoomEntry) {
+          const conflictingRoom = classrooms.find(r => r.id === draggedEntry.classroomId);
+          const confirmRoomMove = window.confirm(
+            `⚠️ Room Conflict Warning:\nRoom ${conflictingRoom?.name || 'Classroom'} is already occupied on ${targetDay} (${targetSlotLabel}).\n\nDo you want to proceed and reschedule this class anyway?`
+          );
+          if (!confirmRoomMove) {
+            return;
+          }
+        }
+      }
+
+      // 2. KEEP PREVIOUS SCREEN STATE FOR ROLLBACK SAFETY
+      const previousEntries = [...timetableEntries];
 
       // Prepare updated entries: remove the dragged entry from old day/slot
       let nextEntries = timetableEntries.filter(entry => entry.id !== entryId);
@@ -686,14 +812,60 @@ export default function HodDashboard({
       // Clean deduplication
       nextEntries = deduplicateTimetableEntries(nextEntries);
 
-      // Immediately persist to state & online database
+      // 3. IMMEDIATELY UPDATE THE SCREEN (Optimistic UI)
       onUpdateTimetableEntries(nextEntries);
-      saveTimetableDirectly(nextEntries, units, courseGroups, true);
+      const slotKey = `${resolvedCourseId}_${targetDay}_${targetSlotId}`;
+      setSavingSlotKey(slotKey);
+      triggerFeedback(
+        `Saving reschedule: ${draggedEntry.day} ${originalSlotLabel} → ${targetDay} ${targetSlotLabel}...`,
+        'saving'
+      );
 
-      const unitObj = units.find(u => u.id === draggedEntry.unitId);
-      triggerFeedback(`✨ Moved "${unitObj?.code || 'Class'}" to ${targetDay} Slot ${targetSlotId} and saved to online database!`);
-    } catch (err) {
+      // 4. SAVE IT TO FIRESTORE / CLOUD SERVER
+      const res = onSaveTimetableSlot 
+        ? await onSaveTimetableSlot(movedEntry, units, courseGroups)
+        : await saveSlotDirectly(movedEntry, nextEntries, units, courseGroups);
+
+      // 5. CONFIRM DATABASE WRITE SUCCEEDED
+      const isSuccess = res === true || (typeof res === 'object' && res !== null && (res as any).success === true);
+
+      if (isSuccess) {
+        // 6. UPDATE LOCAL SCREEN WITH THE CONFIRMED SAVED VERSION
+        if (typeof res === 'object' && res !== null && Array.isArray((res as any).timetableEntries) && (res as any).timetableEntries.length > 0) {
+          onUpdateTimetableEntries((res as any).timetableEntries);
+        }
+        setSavingSlotKey(null);
+        setRecentlySavedSlotKey(slotKey);
+        setTimeout(() => setRecentlySavedSlotKey(null), 4000);
+
+        // SHOW "Saved ✓"
+        triggerFeedback(
+          `Saved ✓ Class rescheduled: ${draggedEntry.day} ${originalSlotLabel} → ${targetDay} ${targetSlotLabel}`,
+          'success',
+          res && typeof res === 'object' && res.firestoreSaved ? 'Saved to Cloud Firestore & Server' : 'Saved to Cloud Server'
+        );
+      } else {
+        // 7. IF SAVING FAILS, SHOW "Save failed – changes not stored" INSTEAD OF PRETENDING EVERYTHING WORKED
+        console.error('[Reschedule Error] Database write failed, rolling back screen');
+        onUpdateTimetableEntries(previousEntries);
+        setSavingSlotKey(null);
+        setRecentlySavedSlotKey(null);
+        triggerFeedback(
+          'Save failed – changes not stored',
+          'error',
+          `Could not save change (${draggedEntry.day} ${originalSlotLabel} → ${targetDay} ${targetSlotLabel}) to database. Screen reverted to saved version.`
+        );
+      }
+    } catch (err: any) {
       console.error("Drop error:", err);
+      onUpdateTimetableEntries(timetableEntries);
+      setSavingSlotKey(null);
+      setRecentlySavedSlotKey(null);
+      triggerFeedback(
+        'Save failed – changes not stored',
+        'error',
+        `Network error: ${err?.message || 'Database write unsuccessful'}. Screen reverted.`
+      );
     }
   };
 
@@ -908,27 +1080,67 @@ export default function HodDashboard({
   };
 
   const executeDeleteSlots = async (idsToRemove: string[], feedbackMsg: string) => {
+    // 0. Close all related modals and confirmation prompts immediately so the user never has to click cancel
+    setDeleteLinkedPrompt(null);
+    setShowEditorModal(false);
+    setEditingEntry(null);
+    setEditorError(null);
+
+    const previousEntries = [...timetableEntries];
     const idSet = new Set(idsToRemove);
     const remaining = timetableEntries.filter(e => !idSet.has(e.id));
     
     // 1. Instant local UI update
     onUpdateTimetableEntries(remaining);
+    triggerFeedback(`Removing slot from database...`, 'saving');
     
-    // 2. Authoritative multi-tier deletion
-    if (onDeleteTimetableSlot) {
-      await onDeleteTimetableSlot(idsToRemove);
-    } else {
-      await deleteSlotDirectly(idsToRemove);
-      saveTimetableDirectly(remaining, units, courseGroups, true).catch(() => {});
-    }
+    // 2. Authoritative deletion directly to Google Cloud
+    try {
+      let res: any;
+      if (onDeleteTimetableSlot) {
+        res = await onDeleteTimetableSlot(idsToRemove);
+      } else {
+        res = await deleteSlotDirectly(idsToRemove, remaining, units, courseGroups);
+      }
 
-    triggerFeedback(feedbackMsg);
-    setDeleteLinkedPrompt(null);
+      const isSuccess = res === true || (typeof res === 'object' && res !== null && (res as any).success === true);
+
+      if (isSuccess) {
+        if (typeof res === 'object' && res !== null && Array.isArray((res as any).timetableEntries)) {
+          onUpdateTimetableEntries((res as any).timetableEntries);
+        }
+        triggerFeedback(
+          `Saved ✓ ${feedbackMsg}`, 
+          'success', 
+          res && typeof res === 'object' && res.firestoreSaved ? 'Removed from Firestore & Server' : 'Removed from Server'
+        );
+      } else {
+        console.error('[Slot Delete Error] Deletion failed on database, reverting screen');
+        onUpdateTimetableEntries(previousEntries);
+        triggerFeedback(
+          'Save failed – changes not stored',
+          'error',
+          'Database could not confirm deletion. Timetable slot reverted.'
+        );
+      }
+    } catch (err: any) {
+      console.warn('Error deleting slot:', err);
+      onUpdateTimetableEntries(previousEntries);
+      triggerFeedback(
+        'Save failed – changes not stored',
+        'error',
+        `Network error: ${err?.message || 'Database write unsuccessful'}. Screen reverted.`
+      );
+    }
   };
 
   const handleDeleteEntry = (id: string, forceSkipPrompt: boolean = false) => {
     const targetEntry = timetableEntries.find(e => e.id === id);
-    if (!targetEntry) return;
+    if (!targetEntry) {
+      setShowEditorModal(false);
+      setEditingEntry(null);
+      return;
+    }
 
     const unit = units.find(u => u.id === targetEntry.unitId);
     const unitCode = unit?.code || 'this unit';
@@ -943,6 +1155,8 @@ export default function HodDashboard({
     );
 
     if (linkedEntries.length > 0 && !forceSkipPrompt) {
+      setShowEditorModal(false);
+      setEditingEntry(null);
       setDeleteLinkedPrompt({ targetEntry, linkedEntries });
       return;
     }
@@ -2545,18 +2759,57 @@ export default function HodDashboard({
 
               {/* Transient Notification / Sync Feedback */}
               {syncBannerMsg && (
-                <div className="mb-6 p-4 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900 flex items-center justify-between shadow-xs print:hidden animate-fade-in">
+                <div className={`mb-6 p-4 rounded-2xl border flex items-center justify-between shadow-xs print:hidden animate-fade-in transition-all ${
+                  syncBannerMsg.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                    : syncBannerMsg.type === 'error'
+                      ? 'bg-rose-50 border-rose-300 text-rose-950'
+                      : syncBannerMsg.type === 'saving'
+                        ? 'bg-blue-50 border-blue-300 text-blue-950'
+                        : 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                }`}>
                   <div className="flex items-center gap-3">
-                    <span className="p-2 bg-indigo-600 text-white rounded-xl">
-                      <Sparkles className="w-4 h-4" />
+                    <span className={`p-2 rounded-xl text-white ${
+                      syncBannerMsg.type === 'success'
+                        ? 'bg-emerald-600'
+                        : syncBannerMsg.type === 'error'
+                          ? 'bg-rose-600'
+                          : syncBannerMsg.type === 'saving'
+                            ? 'bg-blue-600'
+                            : 'bg-indigo-600'
+                    }`}>
+                      {syncBannerMsg.type === 'success' && <CheckCircle2 className="w-4 h-4" />}
+                      {syncBannerMsg.type === 'error' && <XCircle className="w-4 h-4" />}
+                      {syncBannerMsg.type === 'saving' && <RefreshCw className="w-4 h-4 animate-spin" />}
+                      {syncBannerMsg.type === 'info' && <Sparkles className="w-4 h-4" />}
                     </span>
                     <div>
-                      <p className="text-xs font-bold text-indigo-950">{syncBannerMsg.text}</p>
+                      <div className="flex items-center gap-2">
+                        {syncBannerMsg.type === 'success' && (
+                          <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-emerald-200 text-emerald-900 rounded-md">
+                            Saved ✓
+                          </span>
+                        )}
+                        {syncBannerMsg.type === 'error' && (
+                          <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-rose-200 text-rose-900 rounded-md">
+                            Save Failed
+                          </span>
+                        )}
+                        {syncBannerMsg.type === 'saving' && (
+                          <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide bg-blue-200 text-blue-900 rounded-md">
+                            Writing to Cloud...
+                          </span>
+                        )}
+                        <p className="text-xs font-bold">{syncBannerMsg.text}</p>
+                      </div>
+                      {syncBannerMsg.details && (
+                        <p className="text-[11px] font-medium opacity-80 mt-0.5">{syncBannerMsg.details}</p>
+                      )}
                     </div>
                   </div>
                   <button 
                     onClick={() => setSyncBannerMsg(null)}
-                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                    className="text-xs font-bold opacity-75 hover:opacity-100 cursor-pointer px-2 py-1 rounded hover:bg-black/5 transition-colors"
                   >
                     Dismiss
                   </button>
@@ -2970,6 +3223,9 @@ export default function HodDashboard({
                                       const trainer = entry ? users.find(u => u.id === entry.trainerId) : null;
                                       const room = entry ? classrooms.find(c => c.id === entry.classroomId) : null;
                                       const cellConflicts = entry ? allConflicts.filter(c => c.affectedEntries.includes(entry.id)) : [];
+                                      const cellSlotKey = `${cohort.courseId}_${day}_${ts.id}`;
+                                      const isCellSaving = savingSlotKey === cellSlotKey;
+                                      const isCellSaved = recentlySavedSlotKey === cellSlotKey;
 
                                       return (
                                         <td 
@@ -2985,16 +3241,20 @@ export default function HodDashboard({
                                                 e.dataTransfer.setData('text/plain', JSON.stringify({ entryId: entry.id }));
                                                 e.dataTransfer.effectAllowed = 'move';
                                               }}
-                                              className={`p-2.5 rounded-xl border flex flex-col justify-between h-full group cursor-grab active:cursor-grabbing transition-shadow hover:shadow-md ${
-                                              cellConflicts.length > 0
-                                                ? `bg-red-50/60 border-red-200 text-red-900 shadow-xs ${
-                                                    entry.isPublished 
-                                                      ? 'print:bg-emerald-50/30 print:border-emerald-100 print:text-slate-800' 
-                                                      : 'print:bg-indigo-50/30 print:border-indigo-100 print:text-slate-800'
-                                                  }`
-                                                : entry.isPublished
-                                                  ? 'bg-emerald-50/30 border-emerald-100 text-slate-800'
-                                                  : 'bg-indigo-50/30 border-indigo-100 text-slate-800'
+                                              className={`p-2.5 rounded-xl border flex flex-col justify-between h-full group cursor-grab active:cursor-grabbing transition-all hover:shadow-md ${
+                                              isCellSaved
+                                                ? 'ring-2 ring-emerald-500 bg-emerald-50/80 border-emerald-300 text-slate-900 shadow-sm'
+                                                : isCellSaving
+                                                  ? 'ring-2 ring-blue-400 bg-blue-50/80 border-blue-300 text-slate-900 shadow-sm animate-pulse'
+                                                  : cellConflicts.length > 0
+                                                    ? `bg-red-50/60 border-red-200 text-red-900 shadow-xs ${
+                                                        entry.isPublished 
+                                                          ? 'print:bg-emerald-50/30 print:border-emerald-100 print:text-slate-800' 
+                                                          : 'print:bg-indigo-50/30 print:border-indigo-100 print:text-slate-800'
+                                                      }`
+                                                    : entry.isPublished
+                                                      ? 'bg-emerald-50/30 border-emerald-100 text-slate-800'
+                                                      : 'bg-indigo-50/30 border-indigo-100 text-slate-800'
                                             }`}>
                                               <div>
                                                 <div className="flex items-center justify-between gap-1 mb-2 flex-wrap">
@@ -3008,11 +3268,25 @@ export default function HodDashboard({
                                                       </span>
                                                     )}
                                                   </div>
-                                                  <span className={`px-1.5 py-0.5 text-[8px] font-semibold rounded-full uppercase print:hidden shrink-0 ${
-                                                    entry.isPublished ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                                                  }`}>
-                                                    {entry.isPublished ? 'Published' : 'Draft'}
-                                                  </span>
+                                                  <div className="flex items-center gap-1 shrink-0">
+                                                    {isCellSaved && (
+                                                      <span className="px-1.5 py-0.5 text-[8px] font-extrabold rounded-full uppercase bg-emerald-200 text-emerald-950 border border-emerald-300 flex items-center gap-0.5 shadow-3xs animate-fade-in">
+                                                        <Check className="w-2.5 h-2.5 text-emerald-800" /> Saved ✓
+                                                      </span>
+                                                    )}
+                                                    {isCellSaving && (
+                                                      <span className="px-1.5 py-0.5 text-[8px] font-extrabold rounded-full uppercase bg-blue-200 text-blue-950 border border-blue-300 flex items-center gap-0.5 shadow-3xs animate-pulse">
+                                                        <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-800" /> Saving
+                                                      </span>
+                                                    )}
+                                                    {!isCellSaving && !isCellSaved && (
+                                                      <span className={`px-1.5 py-0.5 text-[8px] font-semibold rounded-full uppercase print:hidden shrink-0 ${
+                                                        entry.isPublished ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                                      }`}>
+                                                        {entry.isPublished ? 'Published' : 'Draft'}
+                                                      </span>
+                                                    )}
+                                                  </div>
                                                 </div>
                                                 <span className="font-semibold text-slate-800 block leading-snug truncate" title={unit?.name}>
                                                   {unit?.name}
@@ -3107,6 +3381,9 @@ export default function HodDashboard({
                               <td className="px-4 py-4 font-bold text-slate-900 bg-slate-50/50 print:bg-slate-100 print:border border-slate-300">{day}</td>
                               {timeSlots.map(ts => {
                                 const cellData = getCellDetails(day, ts.id);
+                                const singleCellSlotKey = `${selectedCourseId}_${day}_${ts.id}`;
+                                const isSingleCellSaving = savingSlotKey === singleCellSlotKey;
+                                const isSingleCellSaved = recentlySavedSlotKey === singleCellSlotKey;
                                 return (
                                   <td 
                                     key={ts.id} 
@@ -3124,16 +3401,20 @@ export default function HodDashboard({
                                               e.dataTransfer.setData('text/plain', JSON.stringify({ entryId: item.entry.id }));
                                               e.dataTransfer.effectAllowed = 'move';
                                             }}
-                                            className={`p-2.5 rounded-xl border flex flex-col justify-between group cursor-grab active:cursor-grabbing transition-shadow hover:shadow-md ${
-                                              item.conflicts.length > 0
-                                                ? `bg-red-50/60 border-red-200 text-red-900 shadow-xs ${
-                                                    item.entry.isPublished 
-                                                      ? 'print:bg-emerald-50/30 print:border-emerald-100 print:text-slate-800' 
-                                                      : 'print:bg-indigo-50/30 print:border-indigo-100 print:text-slate-800'
-                                                  }`
-                                                : item.entry.isPublished
-                                                  ? 'bg-emerald-50/30 border-emerald-100 text-slate-800'
-                                                  : 'bg-indigo-50/30 border-indigo-100 text-slate-800'
+                                            className={`p-2.5 rounded-xl border flex flex-col justify-between group cursor-grab active:cursor-grabbing transition-all hover:shadow-md ${
+                                              isSingleCellSaved
+                                                ? 'ring-2 ring-emerald-500 bg-emerald-50/80 border-emerald-300 text-slate-900 shadow-sm'
+                                                : isSingleCellSaving
+                                                  ? 'ring-2 ring-blue-400 bg-blue-50/80 border-blue-300 text-slate-900 shadow-sm animate-pulse'
+                                                  : item.conflicts.length > 0
+                                                    ? `bg-red-50/60 border-red-200 text-red-900 shadow-xs ${
+                                                        item.entry.isPublished 
+                                                          ? 'print:bg-emerald-50/30 print:border-emerald-100 print:text-slate-800' 
+                                                          : 'print:bg-indigo-50/30 print:border-indigo-100 print:text-slate-800'
+                                                      }`
+                                                    : item.entry.isPublished
+                                                      ? 'bg-emerald-50/30 border-emerald-100 text-slate-800'
+                                                      : 'bg-indigo-50/30 border-indigo-100 text-slate-800'
                                             }`}
                                           >
                                             <div>
@@ -3148,11 +3429,25 @@ export default function HodDashboard({
                                                     </span>
                                                   )}
                                                 </div>
-                                                <span className={`px-1.5 py-0.5 text-[8px] font-semibold rounded-full uppercase print:hidden shrink-0 ${
-                                                  item.entry.isPublished ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                                                }`}>
-                                                  {item.entry.isPublished ? 'Published' : 'Draft'}
-                                                </span>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                  {isSingleCellSaved && (
+                                                    <span className="px-1.5 py-0.5 text-[8px] font-extrabold rounded-full uppercase bg-emerald-200 text-emerald-950 border border-emerald-300 flex items-center gap-0.5 shadow-3xs animate-fade-in">
+                                                      <Check className="w-2.5 h-2.5 text-emerald-800" /> Saved ✓
+                                                    </span>
+                                                  )}
+                                                  {isSingleCellSaving && (
+                                                    <span className="px-1.5 py-0.5 text-[8px] font-extrabold rounded-full uppercase bg-blue-200 text-blue-950 border border-blue-300 flex items-center gap-0.5 shadow-3xs animate-pulse">
+                                                      <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-800" /> Saving
+                                                    </span>
+                                                  )}
+                                                  {!isSingleCellSaving && !isSingleCellSaved && (
+                                                    <span className={`px-1.5 py-0.5 text-[8px] font-semibold rounded-full uppercase print:hidden shrink-0 ${
+                                                      item.entry.isPublished ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                                    }`}>
+                                                      {item.entry.isPublished ? 'Published' : 'Draft'}
+                                                    </span>
+                                                  )}
+                                                </div>
                                               </div>
                                               <span className="font-semibold text-slate-800 block leading-snug truncate" title={item.unit?.name}>
                                                 {item.unit?.name}
@@ -3958,8 +4253,19 @@ export default function HodDashboard({
 
       {/* MANUAL CELL EDITOR MODAL WITH MULTI-LEVEL APPLICATION */}
       {showEditorModal && (
-        <div id="modal-cell-editor" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] flex flex-col">
+        <div 
+          id="modal-cell-editor" 
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => {
+            setShowEditorModal(false);
+            setEditingEntry(null);
+            setEditorError(null);
+          }}
+        >
+          <div 
+            className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-6 border-b border-slate-100 bg-slate-50/50">
               <div className="flex items-center justify-between">
                 <div>
@@ -3970,9 +4276,23 @@ export default function HodDashboard({
                     {selectedDay} Slot {selectedSlotId} ({timeSlots.find(t => t.id === selectedSlotId)?.label}) • {editorSemester}
                   </p>
                 </div>
-                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  {myCourses.find(c => c.id === editorCourseId)?.code || 'Course'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                    {myCourses.find(c => c.id === editorCourseId)?.code || 'Course'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditorModal(false);
+                      setEditingEntry(null);
+                      setEditorError(null);
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -4346,6 +4666,8 @@ export default function HodDashboard({
                     onClick={() => {
                       const entryToDeleteId = editingEntry.id;
                       setShowEditorModal(false);
+                      setEditingEntry(null);
+                      setEditorError(null);
                       handleDeleteEntry(entryToDeleteId);
                     }}
                     className="px-3.5 py-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
@@ -4360,7 +4682,11 @@ export default function HodDashboard({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowEditorModal(false)}
+                    onClick={() => {
+                      setShowEditorModal(false);
+                      setEditingEntry(null);
+                      setEditorError(null);
+                    }}
                     className="px-4 py-2.5 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-all cursor-pointer"
                   >
                     Cancel
@@ -4388,9 +4714,20 @@ export default function HodDashboard({
         const allIds = [targetEntry.id, ...linkedEntries.map(e => e.id)];
 
         return (
-          <div id="modal-delete-linked-slot" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              <div className="p-6 border-b border-slate-100 bg-rose-50/50">
+          <div 
+            id="modal-delete-linked-slot" 
+            className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => {
+              setDeleteLinkedPrompt(null);
+              setShowEditorModal(false);
+              setEditingEntry(null);
+            }}
+          >
+            <div 
+              className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-slate-100 bg-rose-50/50 flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-rose-600 text-white rounded-xl shadow-xs">
                     <Trash2 className="w-5 h-5" />
@@ -4404,6 +4741,18 @@ export default function HodDashboard({
                     </p>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteLinkedPrompt(null);
+                    setShowEditorModal(false);
+                    setEditingEntry(null);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-white/80 rounded-lg transition-colors cursor-pointer"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
               <div className="p-6 space-y-4">
@@ -4415,6 +4764,9 @@ export default function HodDashboard({
                   <button
                     type="button"
                     onClick={() => {
+                      setDeleteLinkedPrompt(null);
+                      setShowEditorModal(false);
+                      setEditingEntry(null);
                       executeDeleteSlots(
                         allIds,
                         `🗑️ Removed ${unitCode} slot from all ${totalCount} linked course levels and educator timetable.`
@@ -4434,6 +4786,9 @@ export default function HodDashboard({
                   <button
                     type="button"
                     onClick={() => {
+                      setDeleteLinkedPrompt(null);
+                      setShowEditorModal(false);
+                      setEditingEntry(null);
                       executeDeleteSlots(
                         [targetEntry.id],
                         `🗑️ Removed ${unitCode} slot from this course level only.`
@@ -4455,7 +4810,11 @@ export default function HodDashboard({
               <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setDeleteLinkedPrompt(null)}
+                  onClick={() => {
+                    setDeleteLinkedPrompt(null);
+                    setShowEditorModal(false);
+                    setEditingEntry(null);
+                  }}
                   className="px-4 py-2 border border-slate-200 rounded-xl hover:bg-white text-slate-600 text-xs font-semibold transition-all cursor-pointer"
                 >
                   Cancel

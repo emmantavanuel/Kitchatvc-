@@ -12,6 +12,16 @@ export const CLIENT_TAB_ID = typeof crypto !== 'undefined' && crypto.randomUUID
   : 'tab_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
 
 // Cross-tab real-time communication channel (0ms latency on same machine)
+// High-water mark timestamp for state versions to prevent stale snapshots from rolling back updates
+export let latestKnownServerTimestamp: string | null = null;
+
+export function updateLatestKnownTimestamp(timestamp: string | null | undefined) {
+  if (!timestamp) return;
+  if (!latestKnownServerTimestamp || timestamp > latestKnownServerTimestamp) {
+    latestKnownServerTimestamp = timestamp;
+  }
+}
+
 let realtimeBroadcastChannel: BroadcastChannel | null = null;
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -38,7 +48,7 @@ export function broadcastLocalUpdate(domain: string, data: any) {
 }
 
 /**
- * Subscribe to real-time live updates from Cloud Firestore and other browser tabs.
+ * Subscribe to real-time live updates from Cloud Firestore, Cloud Server SSE, and other browser tabs.
  * Fires instantly whenever another tab or another machine modifies the timetable or state!
  */
 export function subscribeToRealtimeUpdates(callback: (payload: {
@@ -70,24 +80,7 @@ export function subscribeToRealtimeUpdates(callback: (payload: {
     unsubs.push(() => realtimeBroadcastChannel?.removeEventListener('message', handleBroadcast));
   }
 
-  // 2. Storage event fallback for cross-tab sync
-  if (typeof window !== 'undefined') {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === 'ktvc_timetable_entries' && event.newValue) {
-        try {
-          const parsed = JSON.parse(event.newValue);
-          callback({
-            timetableEntries: parsed,
-            source: 'local_storage'
-          });
-        } catch {}
-      }
-    };
-    window.addEventListener('storage', handleStorage);
-    unsubs.push(() => window.removeEventListener('storage', handleStorage));
-  }
-
-  // 3. Server-Sent Events (SSE) Real-time Stream for instantaneous cross-machine / cross-tab updates
+  // 2. Server-Sent Events (SSE) Real-time Stream for instantaneous cross-machine / cross-tab updates
   if (typeof EventSource !== 'undefined') {
     try {
       const eventSource = new EventSource('/api/realtime/events');
@@ -95,6 +88,9 @@ export function subscribeToRealtimeUpdates(callback: (payload: {
         try {
           const payload = JSON.parse(event.data);
           if (payload && payload.type === 'state_updated' && payload.data) {
+            if (payload.data.updatedAt) {
+              updateLatestKnownTimestamp(payload.data.updatedAt);
+            }
             callback({
               ...payload.data,
               source: 'server_realtime'
@@ -110,7 +106,7 @@ export function subscribeToRealtimeUpdates(callback: (payload: {
     }
   }
 
-  // 4. Optional Cloud Firestore snapshot listener (safely guarded against errors)
+  // 3. Direct Google Cloud Firestore snapshot listeners (guarded against stale snapshots)
   if (db) {
     try {
       const unsubTimetable = onSnapshot(
@@ -119,7 +115,13 @@ export function subscribeToRealtimeUpdates(callback: (payload: {
           if (snapshot.metadata.hasPendingWrites) return;
           if (snapshot.exists()) {
             const data = snapshot.data();
+            const snapTime = data?.updatedAt;
+            // Never let an older snapshot overwrite newer Cloud Server updates
+            if (snapTime && latestKnownServerTimestamp && snapTime < latestKnownServerTimestamp) {
+              return;
+            }
             if (data && data.timetableEntries) {
+              if (snapTime) updateLatestKnownTimestamp(snapTime);
               callback({
                 timetableEntries: data.timetableEntries,
                 units: data.units,
@@ -132,6 +134,39 @@ export function subscribeToRealtimeUpdates(callback: (payload: {
         () => {} // Silently ignore listener errors
       );
       unsubs.push(unsubTimetable);
+
+      const unsubMaster = onSnapshot(
+        doc(db, 'app_state', 'timetable_state'),
+        (snapshot) => {
+          if (snapshot.metadata.hasPendingWrites) return;
+          if (snapshot.exists()) {
+            const snapData = snapshot.data();
+            const snapTime = snapData?.updatedAt || snapData?.data?.updatedAt;
+            // Never let an older snapshot overwrite newer Cloud Server updates
+            if (snapTime && latestKnownServerTimestamp && snapTime < latestKnownServerTimestamp) {
+              return;
+            }
+            const data = snapData?.data;
+            if (data) {
+              if (snapTime) updateLatestKnownTimestamp(snapTime);
+              callback({
+                users: data.users,
+                demoAccountsPurged: data.demoAccountsPurged,
+                timetableEntries: data.timetableEntries,
+                units: data.units,
+                courseGroups: data.courseGroups,
+                websiteConfig: data.websiteConfig,
+                academicSetting: data.academicSetting,
+                poeDocuments: data.poeDocuments,
+                poeNotifications: data.poeNotifications,
+                source: 'cloud_firestore'
+              });
+            }
+          }
+        },
+        () => {}
+      );
+      unsubs.push(unsubMaster);
     } catch {}
   }
 
@@ -209,17 +244,52 @@ export function deduplicateTimetableEntries(entries: any[]): any[] {
 }
 
 /**
- * Load consolidated application state from Server API or Firestore.
+ * Clear any browser cache, localStorage, sessionStorage, and CacheStorage
+ * Enforcing strictly that schedules, user accounts, and data are stored ONLY in Google Cloud.
  */
-export async function loadApplicationState(localLastUpdated?: string | null): Promise<any | null> {
-  let serverState: any = null;
-  let serverTimestamp: string | null = null;
+export function clearLegacyLocalStorage() {
+  try {
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) {
+        window.localStorage.clear();
+      }
+      if (window.sessionStorage) {
+        window.sessionStorage.clear();
+      }
+      if ('caches' in window) {
+        caches.keys().then((names) => {
+          names.forEach((name) => caches.delete(name));
+        }).catch(() => {});
+      }
+    }
+  } catch {}
+}
 
-  // 1. Primary: Super-fast Express /api/state (Returns in 2-5ms from server memory/disk)
+// Immediately purge browser cache on script load so nothing is kept on client disk
+if (typeof window !== 'undefined') {
+  clearLegacyLocalStorage();
+}
+
+/**
+ * Load consolidated application state directly from Google Cloud Server API and Firestore.
+ * Never reads from browser cache.
+ */
+export async function loadApplicationState(): Promise<any | null> {
+  let serverState: any = null;
+  let serverUpdatedAt: string | null = null;
+
+  // 1. Authoritative Cloud Server fetch (always reflects real-time server state and deletions)
   try {
     const res = await Promise.race([
-      fetch('/api/state'),
-      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('API read timeout')), 4000))
+      fetch('/api/state', {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      }),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('API read timeout')), 3000))
     ]);
     if (res.ok) {
       const contentType = res.headers.get('content-type') || '';
@@ -227,77 +297,485 @@ export async function loadApplicationState(localLastUpdated?: string | null): Pr
         const json = await res.json();
         if (json && json.success && json.state) {
           serverState = json.state;
-          serverTimestamp = json.updatedAt || null;
+          serverUpdatedAt = json.updatedAt || json.state.updatedAt || null;
         }
       }
     }
   } catch (apiErr) {
-    // Expected when offline or on static hosting
+    console.warn('[Cloud Hydration] Server API fetch note:', apiErr);
   }
 
-  // 2. Secondary: Cloud Firestore (Checks both timetable_state and dedicated timetable doc)
-  let cloudState: any = null;
-  let cloudTimestamp: string | null = null;
-  let directTimetableData: any = null;
-
+  // 2. Fallback / check Google Cloud Firestore
+  let firestoreState: any = null;
+  let firestoreUpdatedAt: string | null = null;
   if (db) {
     try {
       const masterDocRef = doc(db, 'app_state', 'timetable_state');
-      const timetableDocRef = doc(db, 'app_state', 'timetable');
-
-      const [masterSnap, timetableSnap]: any = await Promise.all([
-        getDoc(masterDocRef).catch(() => null),
-        getDoc(timetableDocRef).catch(() => null)
+      const masterSnap = await Promise.race([
+        getDoc(masterDocRef),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Firestore read timeout')), 2500))
       ]);
 
       if (masterSnap && masterSnap.exists()) {
         const docData = masterSnap.data();
         if (docData && docData.data) {
-          cloudState = docData.data;
-          cloudTimestamp = docData.updatedAt || null;
-        }
-      }
-
-      if (timetableSnap && timetableSnap.exists()) {
-        const tData = timetableSnap.data();
-        if (tData?.timetableEntries && Array.isArray(tData.timetableEntries)) {
-          directTimetableData = tData;
+          firestoreState = docData.data;
+          firestoreUpdatedAt = docData.updatedAt || docData.data.updatedAt || null;
         }
       }
     } catch (firestoreErr: any) {
-      console.warn('[Database] Firestore hydration notice:', firestoreErr?.message || firestoreErr);
+      console.warn('[Database] Cloud Firestore read notice:', firestoreErr?.message || firestoreErr);
     }
   }
 
-  // Prefer the freshest state, with Firestore timetable data taking precedence if available
-  let effectiveState = serverState || cloudState || {};
-  if (cloudState && (!serverTimestamp || (cloudTimestamp && cloudTimestamp > serverTimestamp))) {
-    effectiveState = { ...effectiveState, ...cloudState };
-  }
-
-  if (directTimetableData && directTimetableData.timetableEntries) {
-    // If direct timetable doc has entries, ensure they are integrated and deduplicated
-    const directEntries = deduplicateTimetableEntries(directTimetableData.timetableEntries);
-    const existingEntries = effectiveState.timetableEntries || [];
-    
-    // Use direct timetable entries if they are newer or richer
-    if (directEntries.length > 0) {
-      effectiveState = {
-        ...effectiveState,
-        timetableEntries: directEntries,
-        ...(directTimetableData.units?.length ? { units: directTimetableData.units } : {}),
-        ...(directTimetableData.courseGroups?.length ? { courseGroups: directTimetableData.courseGroups } : {})
-      };
+  // 3. Authoritative selection:
+  // If Cloud Server state exists and is as new or newer than Firestore, prefer Cloud Server!
+  if (serverState && firestoreState) {
+    if (!firestoreUpdatedAt || (serverUpdatedAt && serverUpdatedAt >= firestoreUpdatedAt)) {
+      updateLatestKnownTimestamp(serverUpdatedAt);
+      console.log(`[Google Cloud Server] Loaded authoritative server state with ${serverState.timetableEntries?.length || 0} timetable entries.`);
+      return serverState;
+    } else {
+      updateLatestKnownTimestamp(firestoreUpdatedAt);
+      console.log(`[Google Cloud Firestore] Loaded newer Firestore state with ${firestoreState.timetableEntries?.length || 0} timetable entries.`);
+      return firestoreState;
     }
   }
 
-  return Object.keys(effectiveState).length > 0 ? effectiveState : null;
+  if (serverState) {
+    updateLatestKnownTimestamp(serverUpdatedAt);
+    console.log(`[Google Cloud Server] Loaded authoritative state with ${serverState.timetableEntries?.length || 0} timetable entries.`);
+    return serverState;
+  }
+
+  if (firestoreState) {
+    updateLatestKnownTimestamp(firestoreUpdatedAt);
+    console.log(`[Google Cloud Firestore] Loaded state with ${firestoreState.timetableEntries?.length || 0} timetable entries.`);
+    return firestoreState;
+  }
+
+  return null;
 }
 
 // Solid, atomic queue for sequential cloud sync
 let isSaveInProgress = false;
 let pendingSavePayload: any = null;
 let saveResolvers: Array<(res: any) => void> = [];
+
+/**
+ * Dedicated atomic delete for a timetable slot directly on Cloud Server and Firestore.
+ */
+export async function deleteSlotDirectly(
+  idOrIds: string | string[],
+  explicitRemainingEntries?: any[],
+  units?: any[],
+  courseGroups?: any[]
+): Promise<{ success: boolean; timetableEntries: any[]; firestoreSaved: boolean; serverSaved: boolean; quotaExceeded?: boolean }> {
+  const ids = new Set((Array.isArray(idOrIds) ? idOrIds : [idOrIds]).map(String));
+  const nowIso = new Date().toISOString();
+
+  let remaining: any[] = [];
+  if (Array.isArray(explicitRemainingEntries)) {
+    remaining = deduplicateTimetableEntries(explicitRemainingEntries);
+  }
+
+  // 1. Broadcast to other active tabs immediately
+  broadcastLocalUpdate('timetable', {
+    timetableEntries: remaining,
+    units,
+    courseGroups
+  });
+
+  let serverSaved = false;
+  let firestoreSaved = false;
+  let quotaExceeded = false;
+
+  // 2. PRIMARY AUTHORITATIVE WRITE: Directly to Cloud Server API (Instant & durable)
+  try {
+    const res = await Promise.race([
+      fetch('/api/timetable/slot/delete', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          ids: Array.from(ids),
+          remainingEntries: remaining,
+          units,
+          courseGroups,
+          updatedAt: nowIso
+        })
+      }),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.timetableEntries)) {
+        remaining = data.timetableEntries;
+      }
+      serverSaved = true;
+      if (data?.firestoreSaved) {
+        firestoreSaved = true;
+      }
+      updateLatestKnownTimestamp(data?.updatedAt || nowIso);
+      console.log(`[Cloud Server] Successfully deleted slot(s) ${Array.from(ids).join(', ')}. Remaining: ${remaining.length} entries.`);
+    }
+  } catch (apiErr) {
+    console.warn('[Slot Delete] Cloud Server API note:', apiErr);
+  }
+
+  // 3. Direct Cloud Firestore write with adequate network timeout
+  if (db) {
+    try {
+      const masterDocRef = doc(db, 'app_state', 'timetable_state');
+      const timetableDocRef = doc(db, 'app_state', 'timetable');
+
+      await Promise.race([
+        Promise.all([
+          setDoc(masterDocRef, {
+            data: {
+              timetableEntries: remaining,
+              ...(units && units.length > 0 ? { units } : {}),
+              ...(courseGroups && courseGroups.length > 0 ? { courseGroups } : {})
+            },
+            updatedAt: nowIso
+          }, { merge: true }),
+          setDoc(timetableDocRef, {
+            timetableEntries: remaining,
+            units: units || [],
+            courseGroups: courseGroups || [],
+            updatedAt: nowIso
+          })
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 6500))
+      ]);
+      firestoreSaved = true;
+    } catch (fsErr: any) {
+      if (fsErr?.message?.includes('RESOURCE_EXHAUSTED') || fsErr?.code === 'resource-exhausted') {
+        quotaExceeded = true;
+      }
+      console.warn('[Slot Delete] Cloud Firestore backup note:', fsErr?.message || fsErr);
+    }
+  }
+
+  return { success: serverSaved || firestoreSaved, timetableEntries: remaining, firestoreSaved, serverSaved, quotaExceeded };
+}
+
+/**
+ * Dedicated atomic save / update for a timetable slot directly on Cloud Server and Firestore.
+ */
+export async function saveSlotDirectly(
+  entryOrEntries: any | any[],
+  explicitAllEntries?: any[],
+  units?: any[],
+  courseGroups?: any[]
+): Promise<{ success: boolean; timetableEntries: any[]; firestoreSaved: boolean; serverSaved: boolean; quotaExceeded?: boolean }> {
+  const entries = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
+  const nowIso = new Date().toISOString();
+
+  let cleanEntries: any[] = [];
+  if (Array.isArray(explicitAllEntries)) {
+    cleanEntries = deduplicateTimetableEntries(explicitAllEntries);
+  }
+
+  // 1. Broadcast to other active tabs
+  broadcastLocalUpdate('timetable', {
+    timetableEntries: cleanEntries,
+    units,
+    courseGroups
+  });
+
+  let serverSaved = false;
+  let firestoreSaved = false;
+  let quotaExceeded = false;
+
+  // 2. PRIMARY AUTHORITATIVE WRITE: Directly to Cloud Server API
+  try {
+    const res = await Promise.race([
+      fetch('/api/timetable/slot/save', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          entries,
+          allEntries: cleanEntries,
+          units,
+          courseGroups,
+          updatedAt: nowIso
+        })
+      }),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.timetableEntries)) {
+        cleanEntries = data.timetableEntries;
+      }
+      serverSaved = true;
+      if (data?.firestoreSaved) {
+        firestoreSaved = true;
+      }
+      updateLatestKnownTimestamp(data?.updatedAt || nowIso);
+    }
+  } catch (apiErr) {
+    console.warn('[Slot Save] Cloud Server API note:', apiErr);
+  }
+
+  // 3. Direct Cloud Firestore write with adequate network timeout
+  if (db) {
+    try {
+      const masterDocRef = doc(db, 'app_state', 'timetable_state');
+      const timetableDocRef = doc(db, 'app_state', 'timetable');
+
+      await Promise.race([
+        Promise.all([
+          setDoc(masterDocRef, {
+            data: {
+              timetableEntries: cleanEntries,
+              ...(units && units.length > 0 ? { units } : {}),
+              ...(courseGroups && courseGroups.length > 0 ? { courseGroups } : {})
+            },
+            updatedAt: nowIso
+          }, { merge: true }),
+          setDoc(timetableDocRef, {
+            timetableEntries: cleanEntries,
+            units: units || [],
+            courseGroups: courseGroups || [],
+            updatedAt: nowIso
+          })
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 6500))
+      ]);
+      firestoreSaved = true;
+    } catch (fsErr: any) {
+      if (fsErr?.message?.includes('RESOURCE_EXHAUSTED') || fsErr?.code === 'resource-exhausted') {
+        quotaExceeded = true;
+      }
+      console.warn('[Slot Save] Cloud Firestore backup note:', fsErr?.message || fsErr);
+    }
+  }
+
+  return { success: serverSaved || firestoreSaved, timetableEntries: cleanEntries, firestoreSaved, serverSaved, quotaExceeded };
+}
+
+/**
+ * Dedicated instant save for Timetable entries directly to Cloud Server and Firestore.
+ */
+export async function saveTimetableDirectly(
+  timetableEntries: any[],
+  units?: any[],
+  courseGroups?: any[],
+  allowOverwrite: boolean = true
+): Promise<{ success: boolean; timetableEntries: any[]; firestoreSaved: boolean; serverSaved: boolean; quotaExceeded?: boolean }> {
+  const rawEntries = JSON.parse(JSON.stringify(timetableEntries, (k, v) => (v === undefined ? null : v)));
+  const cleanEntries = deduplicateTimetableEntries(rawEntries);
+  const cleanUnits = units ? JSON.parse(JSON.stringify(units, (k, v) => (v === undefined ? null : v))) : undefined;
+  const cleanGroups = courseGroups ? JSON.parse(JSON.stringify(courseGroups, (k, v) => (v === undefined ? null : v))) : undefined;
+  const nowIso = new Date().toISOString();
+
+  // 1. Instant broadcast to other tabs on same machine
+  broadcastLocalUpdate('timetable', {
+    timetableEntries: cleanEntries,
+    units: cleanUnits,
+    courseGroups: cleanGroups
+  });
+
+  let serverSaved = false;
+  let firestoreSaved = false;
+  let quotaExceeded = false;
+
+  // 2. PRIMARY AUTHORITATIVE WRITE: Directly to Cloud Server API
+  try {
+    const res = await Promise.race([
+      fetch('/api/save-timetable', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          timetableEntries: cleanEntries,
+          units: cleanUnits,
+          courseGroups: cleanGroups,
+          allowOverwrite: allowOverwrite ?? true,
+          updatedAt: nowIso
+        })
+      }),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]);
+    if (res.ok) {
+      serverSaved = true;
+      const data = await res.json().catch(() => null);
+      if (Array.isArray(data?.timetableEntries)) {
+        cleanEntries.length = 0;
+        cleanEntries.push(...data.timetableEntries);
+      }
+      if (data?.firestoreSaved) {
+        firestoreSaved = true;
+      }
+      updateLatestKnownTimestamp(data?.updatedAt || nowIso);
+    }
+  } catch (err) {
+    console.warn('[Timetable Save] Cloud Server API notice:', err);
+  }
+
+  // 3. Direct Cloud Firestore write with adequate timeout
+  if (db) {
+    try {
+      const masterDocRef = doc(db, 'app_state', 'timetable_state');
+      const timetableDocRef = doc(db, 'app_state', 'timetable');
+
+      await Promise.race([
+        Promise.all([
+          setDoc(masterDocRef, {
+            data: {
+              timetableEntries: cleanEntries,
+              ...(cleanUnits && cleanUnits.length > 0 ? { units: cleanUnits } : {}),
+              ...(cleanGroups && cleanGroups.length > 0 ? { courseGroups: cleanGroups } : {})
+            },
+            updatedAt: nowIso
+          }, { merge: true }),
+          setDoc(timetableDocRef, {
+            timetableEntries: cleanEntries,
+            units: cleanUnits || [],
+            courseGroups: cleanGroups || [],
+            updatedAt: nowIso
+          })
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 6500))
+      ]);
+      firestoreSaved = true;
+    } catch (fsErr: any) {
+      if (fsErr?.message?.includes('RESOURCE_EXHAUSTED') || fsErr?.code === 'resource-exhausted') {
+        quotaExceeded = true;
+      }
+      console.warn('[Timetable Save] Cloud Firestore backup note:', fsErr?.message || fsErr);
+    }
+  }
+
+  return { success: serverSaved || firestoreSaved, timetableEntries: cleanEntries, firestoreSaved, serverSaved, quotaExceeded };
+}
+
+/**
+ * Dedicated instant save for Front Page Website configuration directly to Cloud
+ */
+export async function saveWebsiteConfigDirectly(websiteConfig: any) {
+  const cleanConfig = JSON.parse(JSON.stringify(websiteConfig, (k, v) => (v === undefined ? null : v)));
+
+  // Instant broadcast to other tabs on same machine
+  broadcastLocalUpdate('website', {
+    websiteConfig: cleanConfig
+  });
+
+  try {
+    await fetch('/api/save-website', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store',
+        'Pragma': 'no-cache'
+      },
+      cache: 'no-store',
+      body: JSON.stringify({ websiteConfig: cleanConfig })
+    });
+  } catch {}
+
+  // Cloud Firestore direct write
+  if (db) {
+    try {
+      const nowIso = new Date().toISOString();
+      setDoc(doc(db, 'app_state', 'website'), {
+        websiteConfig: cleanConfig,
+        updatedAt: nowIso
+      }).catch(() => {});
+    } catch {}
+  }
+
+  return true;
+}
+
+/**
+ * Dedicated instant save for Portfolio of Evidence (PoE) documents & notifications
+ */
+export async function savePoeDirectly(poeDocuments: any[], poeNotifications?: any[]) {
+  const cleanDocs = JSON.parse(JSON.stringify(poeDocuments, (k, v) => (v === undefined ? null : v)));
+  const cleanNotifs = poeNotifications ? JSON.parse(JSON.stringify(poeNotifications, (k, v) => (v === undefined ? null : v))) : undefined;
+
+  // Broadcast to other tabs on same machine
+  broadcastLocalUpdate('poe', {
+    poeDocuments: cleanDocs,
+    poeNotifications: cleanNotifs
+  });
+
+  try {
+    await fetch('/api/save-poe', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store',
+        'Pragma': 'no-cache'
+      },
+      cache: 'no-store',
+      body: JSON.stringify({ poeDocuments: cleanDocs, poeNotifications: cleanNotifs })
+    });
+  } catch (err) {
+    console.warn('[PoE Sync] API notification:', err);
+  }
+
+  // Cloud Firestore direct write
+  if (db) {
+    try {
+      const nowIso = new Date().toISOString();
+      setDoc(doc(db, 'app_state', 'poe'), {
+        poeDocuments: cleanDocs,
+        poeNotifications: cleanNotifs,
+        updatedAt: nowIso
+      }).catch(() => {});
+    } catch {}
+  }
+
+  return true;
+}
+
+/**
+ * Cloud media file uploader (for PDFs, images, documents)
+ */
+export async function uploadMediaFile(fileData: string, fileName: string, fileType: string): Promise<{
+  success: boolean;
+  url: string;
+  fileName: string;
+  fileSize?: string;
+  fileType: string;
+}> {
+  try {
+    const res = await fetch('/api/upload-media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileData, fileName, fileType })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (err) {
+    console.warn('[Upload] Media upload endpoint note, fallback to data URL:', err);
+  }
+  return {
+    success: true,
+    url: fileData,
+    fileName,
+    fileType
+  };
+}
 
 /**
  * Persist application state directly to Server API & Storage with zero timeouts.
@@ -357,253 +835,81 @@ export async function saveApplicationState(payload: any): Promise<{
   return finalResult || { success: true, firestoreSaved: true, serverSaved: true, isCloudSynced: true };
 }
 
-/**
- * Dedicated atomic delete for a timetable slot (or multiple linked slots)
- */
-export async function deleteSlotDirectly(idOrIds: string | string[]): Promise<{ success: boolean; timetableEntries?: any[] }> {
-  const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-  try {
-    const res = await fetch('/api/timetable/slot/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
-  } catch (e) {
-    console.warn('[Slot Delete] Direct API notice:', e);
-  }
-  return { success: false };
-}
-
-/**
- * Dedicated atomic save / update for a timetable slot
- */
-export async function saveSlotDirectly(
-  entryOrEntries: any | any[],
-  units?: any[],
-  courseGroups?: any[]
-): Promise<{ success: boolean; timetableEntries?: any[] }> {
-  const entries = Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries];
-  try {
-    const res = await fetch('/api/timetable/slot/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entries, units, courseGroups })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
-  } catch (e) {
-    console.warn('[Slot Save] Direct API notice:', e);
-  }
-  return { success: false };
-}
-
-/**
- * Dedicated instant save for Timetable entries to ensure zero latency and full overwrite capability
- */
-export async function saveTimetableDirectly(timetableEntries: any[], units?: any[], courseGroups?: any[], allowOverwrite: boolean = true) {
-  const rawEntries = JSON.parse(JSON.stringify(timetableEntries, (k, v) => (v === undefined ? null : v)));
-  const cleanEntries = deduplicateTimetableEntries(rawEntries);
-  const cleanUnits = units ? JSON.parse(JSON.stringify(units, (k, v) => (v === undefined ? null : v))) : undefined;
-  const cleanGroups = courseGroups ? JSON.parse(JSON.stringify(courseGroups, (k, v) => (v === undefined ? null : v))) : undefined;
-
-  // Instant broadcast to other tabs on same machine
-  broadcastLocalUpdate('timetable', {
-    timetableEntries: cleanEntries,
-    units: cleanUnits,
-    courseGroups: cleanGroups
-  });
-
-  // 1. Save to Express server immediately
-  try {
-    await fetch('/api/save-timetable', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        timetableEntries: cleanEntries, 
-        units: cleanUnits, 
-        courseGroups: cleanGroups,
-        allowOverwrite: allowOverwrite ?? true
-      })
-    });
-  } catch {}
-
-  // 2. Direct Firestore cloud backup to both timetable doc and timetable_state doc
-  if (db) {
-    try {
-      const nowIso = new Date().toISOString();
-      const p1 = setDoc(doc(db, 'app_state', 'timetable'), {
-        timetableEntries: cleanEntries,
-        units: cleanUnits || [],
-        courseGroups: cleanGroups || [],
-        updatedAt: nowIso
-      });
-      const p2 = setDoc(doc(db, 'app_state', 'timetable_state'), {
-        data: {
-          timetableEntries: cleanEntries,
-          ...(cleanUnits ? { units: cleanUnits } : {}),
-          ...(cleanGroups ? { courseGroups: cleanGroups } : {})
-        },
-        updatedAt: nowIso
-      }, { merge: true });
-
-      await Promise.allSettled([p1, p2]);
-    } catch {}
-  }
-
-  return true;
-}
-
-/**
- * Dedicated instant save for Front Page Website configuration directly to Cloud
- */
-export async function saveWebsiteConfigDirectly(websiteConfig: any) {
-  const cleanConfig = JSON.parse(JSON.stringify(websiteConfig, (k, v) => (v === undefined ? null : v)));
-
-  // Instant broadcast to other tabs on same machine
-  broadcastLocalUpdate('website', {
-    websiteConfig: cleanConfig
-  });
-
-  try {
-    await fetch('/api/save-website', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ websiteConfig: cleanConfig })
-    });
-  } catch {}
-
-  // Cloud Firestore direct write
-  if (db) {
-    try {
-      const nowIso = new Date().toISOString();
-      setDoc(doc(db, 'app_state', 'website'), {
-        websiteConfig: cleanConfig,
-        updatedAt: nowIso
-      }).catch(() => {});
-    } catch {}
-  }
-
-  return true;
-}
-
-/**
- * Dedicated instant save for Portfolio of Evidence (PoE) documents & notifications
- */
-export async function savePoeDirectly(poeDocuments: any[], poeNotifications?: any[]) {
-  const cleanDocs = JSON.parse(JSON.stringify(poeDocuments, (k, v) => (v === undefined ? null : v)));
-  const cleanNotifs = poeNotifications ? JSON.parse(JSON.stringify(poeNotifications, (k, v) => (v === undefined ? null : v))) : undefined;
-
-  // Broadcast to other tabs on same machine
-  broadcastLocalUpdate('poe', {
-    poeDocuments: cleanDocs,
-    poeNotifications: cleanNotifs
-  });
-
-  try {
-    await fetch('/api/save-poe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ poeDocuments: cleanDocs, poeNotifications: cleanNotifs })
-    });
-  } catch (err) {
-    console.warn('[PoE Sync] API notification:', err);
-  }
-
-  // Cloud Firestore direct write
-  if (db) {
-    try {
-      const nowIso = new Date().toISOString();
-      setDoc(doc(db, 'app_state', 'poe'), {
-        poeDocuments: cleanDocs,
-        poeNotifications: cleanNotifs,
-        updatedAt: nowIso
-      }).catch(() => {});
-    } catch {}
-  }
-
-  return true;
-}
-
-/**
- * Cloud media file uploader (for PDFs, images, documents)
- */
-export async function uploadMediaFile(fileData: string, fileName: string, fileType: string): Promise<{
-  success: boolean;
-  url: string;
-  fileName: string;
-  fileSize?: string;
-  fileType: string;
-}> {
-  try {
-    const res = await fetch('/api/upload-media', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileData, fileName, fileType })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
-  } catch (err) {
-    console.warn('[Upload] Media upload endpoint note, fallback to data URL:', err);
-  }
-  return {
-    success: true,
-    url: fileData,
-    fileName,
-    fileType
-  };
-}
-
 async function executeSave(payload: any) {
   const cleanPayload = JSON.parse(JSON.stringify(payload, (k, v) => (v === undefined ? null : v)));
   const nowIso = new Date().toISOString();
 
-  // 1. Primary path: Server-side API write (< 5ms response, persists to disk & memory, broadcasts via SSE)
+  let serverSaved = false;
+  let firestoreSaved = false;
+  let quotaExceeded = false;
+  let errorMsg: string | null = null;
+
+  // 1. PRIMARY AUTHORITATIVE WRITE: Direct Cloud Server API write (persists to server disk and memory, broadcasts via SSE)
   try {
     const res = await Promise.race([
       fetch('/api/state', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
         body: JSON.stringify(cleanPayload)
       }),
-      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('Server write timeout')), 6000))
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('Server write timeout')), 4000))
     ]);
 
     if (res.ok) {
-      lastFirestoreErrorMessage = null;
-      return {
-        success: true,
-        firestoreSaved: true,
-        serverSaved: true,
-        isCloudSynced: true,
-        updatedAt: nowIso
-      };
+      serverSaved = true;
+      const data = await res.json().catch(() => null);
+      updateLatestKnownTimestamp(data?.updatedAt || nowIso);
     }
   } catch (apiErr: any) {
-    console.warn('[Database] API save notice, using local storage:', apiErr?.message);
+    console.warn('[Database] Cloud Server API note:', apiErr?.message);
   }
 
-  // 2. Safe background cloud backup if server is offline
+  // 2. Non-blocking Cloud Firestore write (strictly timed out so quota exhaustion never blocks)
   if (db) {
     try {
       const docRef = doc(db, 'app_state', 'timetable_state');
-      setDoc(docRef, { data: cleanPayload, updatedAt: nowIso }).catch(() => {});
-    } catch {}
+      const timetableDocRef = doc(db, 'app_state', 'timetable');
+
+      await Promise.race([
+        Promise.all([
+          setDoc(docRef, { data: cleanPayload, updatedAt: nowIso }),
+          ...(cleanPayload.timetableEntries ? [
+            setDoc(timetableDocRef, {
+              timetableEntries: cleanPayload.timetableEntries || [],
+              units: cleanPayload.units || [],
+              courseGroups: cleanPayload.courseGroups || [],
+              updatedAt: nowIso
+            })
+          ] : [])
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 1200))
+      ]);
+      firestoreSaved = true;
+      lastFirestoreErrorMessage = null;
+    } catch (fsErr: any) {
+      if (fsErr?.message?.includes('RESOURCE_EXHAUSTED') || fsErr?.code === 'resource-exhausted') {
+        quotaExceeded = true;
+        errorMsg = "Firestore free daily write quota limit reached (resets daily). Data saved directly to Cloud Server.";
+      } else {
+        errorMsg = fsErr?.message || "Cloud Firestore notice";
+      }
+      lastFirestoreErrorMessage = errorMsg;
+      console.warn('[Database] Cloud Firestore note:', errorMsg);
+    }
   }
 
-  // Always succeed so the user experience is smooth, reliable, and error-free
   return {
-    success: true,
-    firestoreSaved: true,
-    serverSaved: true,
-    isCloudSynced: true,
+    success: serverSaved || firestoreSaved,
+    firestoreSaved,
+    serverSaved,
+    quotaExceeded,
+    error: errorMsg || undefined,
+    isCloudSynced: serverSaved || firestoreSaved,
     updatedAt: nowIso
   };
 }

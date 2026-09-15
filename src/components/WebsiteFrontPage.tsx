@@ -602,6 +602,13 @@ export default function WebsiteFrontPage({
             setCmsInitialTab('slider');
             setIsCmsModalOpen(true);
           }}
+          onUpdateSlides={(updatedSlides) => {
+            const updatedConfig = {
+              ...websiteConfig,
+              slides: updatedSlides
+            };
+            onUpdateWebsiteConfig(updatedConfig);
+          }}
           announcementText={COLLEGE_INFO.intakeAnnouncement}
         />
       )}

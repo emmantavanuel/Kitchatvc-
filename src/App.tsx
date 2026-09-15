@@ -331,14 +331,11 @@ export default function App() {
   };
 
 
-  // Initialize and load state directly from Cloud (Server API + Firestore) on mount
+  // Initialize and load state directly from Cloud Firestore & Server API on mount
   useEffect(() => {
     const initializeData = async () => {
       try {
-        // 1. Purge legacy local storage cache so state is purely from Cloud
-        clearLegacyLocalStorage();
-
-        // 2. Load directly from Cloud Server API and Firestore
+        // Load directly from Google Cloud Firestore and Server API
         const loadedState = await loadApplicationState();
 
         let resolvedUsers: User[] = INITIAL_USERS;
@@ -388,17 +385,14 @@ export default function App() {
             poeRubrics: sPoeRubrics
           } = loadedState;
 
-          const rawServerUsers = Array.isArray(sUsers) && sUsers.length > 1 ? sUsers : INITIAL_USERS;
-          let mappedUsers = rawServerUsers.map((u: any) => u.username?.toLowerCase() === 'admin' ? { ...u, password: 'admin123', isActive: true, isDefault: true, isDemo: false } : { ...u, isActive: true });
-          if (!mappedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
-            mappedUsers.unshift(INITIAL_USERS[0]);
-          }
-          for (const initU of INITIAL_USERS) {
-            if (!mappedUsers.some((u: any) => u.id === initU.id || u.username?.toLowerCase() === initU.username.toLowerCase())) {
-              mappedUsers.push(initU);
+          if (Array.isArray(sUsers) && sUsers.length > 0) {
+            let mappedUsers = [...sUsers];
+            // Guarantee super admin account is always present and functional
+            if (!mappedUsers.some((u: any) => u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+              mappedUsers.unshift(INITIAL_USERS[0]);
             }
+            resolvedUsers = mappedUsers;
           }
-          resolvedUsers = mappedUsers;
 
           if (Array.isArray(sDepts) && sDepts.length > 0) resolvedDepts = sDepts;
           if (Array.isArray(sCourses) && sCourses.length > 0) resolvedCourses = sCourses;
@@ -474,9 +468,6 @@ export default function App() {
 
         // Validate Firestore connectivity in background (Firebase skill constraint)
         testConnection().catch(() => {});
-
-        // Browser caching is strictly disabled - wipe any browser cache
-        clearLegacyLocalStorage();
       } catch (e) {
         console.error("Cloud synchronization initialization notice:", e);
         setSyncStatus('error');
@@ -591,6 +582,39 @@ export default function App() {
           }
         }
       }
+
+      // 8. Departments real-time sync
+      if (update.departments && Array.isArray(update.departments)) {
+        const incomingJson = JSON.stringify(update.departments);
+        const currentJson = JSON.stringify(stateRef.current.departments);
+        if (incomingJson !== currentJson) {
+          setDepartments(update.departments);
+          stateRef.current.departments = update.departments;
+          safeSetItem(KEYS.DEPARTMENTS, incomingJson);
+        }
+      }
+
+      // 9. Courses real-time sync
+      if (update.courses && Array.isArray(update.courses)) {
+        const incomingJson = JSON.stringify(update.courses);
+        const currentJson = JSON.stringify(stateRef.current.courses);
+        if (incomingJson !== currentJson) {
+          setCourses(update.courses);
+          stateRef.current.courses = update.courses;
+          safeSetItem(KEYS.COURSES, incomingJson);
+        }
+      }
+
+      // 10. Classrooms real-time sync
+      if (update.classrooms && Array.isArray(update.classrooms)) {
+        const incomingJson = JSON.stringify(update.classrooms);
+        const currentJson = JSON.stringify(stateRef.current.classrooms);
+        if (incomingJson !== currentJson) {
+          setClassroom(update.classrooms);
+          stateRef.current.classrooms = update.classrooms;
+          safeSetItem(KEYS.CLASSROOMS, incomingJson);
+        }
+      }
     });
 
     return () => {
@@ -628,7 +652,7 @@ export default function App() {
         }
       }
     }
-    triggerAutoSave({ users: updated });
+    triggerAutoSave({ users: updated }, true);
   };
 
   const handlePurgeDemoAccounts = async () => {
@@ -719,21 +743,21 @@ export default function App() {
     setDepartments(updated);
     stateRef.current.departments = updated;
     safeSetItem(KEYS.DEPARTMENTS, JSON.stringify(updated));
-    triggerAutoSave({ departments: updated });
+    triggerAutoSave({ departments: updated }, true);
   };
 
   const updateCoursesState = (updated: Course[]) => {
     setCourses(updated);
     stateRef.current.courses = updated;
     safeSetItem(KEYS.COURSES, JSON.stringify(updated));
-    triggerAutoSave({ courses: updated });
+    triggerAutoSave({ courses: updated }, true);
   };
 
   const updateClassroomsState = (updated: Classroom[]) => {
     setClassroom(updated);
     stateRef.current.classrooms = updated;
     safeSetItem(KEYS.CLASSROOMS, JSON.stringify(updated));
-    triggerAutoSave({ classrooms: updated });
+    triggerAutoSave({ classrooms: updated }, true);
   };
 
   const updateUnitsState = (updated: Unit[]) => {
@@ -803,7 +827,8 @@ export default function App() {
     try {
       const res = await deleteSlotDirectly(idArray, remaining, stateRef.current.units, stateRef.current.courseGroups);
       if (res && res.success) {
-        const authoritativeEntries = Array.isArray(res.timetableEntries) ? res.timetableEntries : remaining;
+        const rawServerEntries = Array.isArray(res.timetableEntries) ? res.timetableEntries : remaining;
+        const authoritativeEntries = rawServerEntries.filter(e => !ids.has(e.id));
         setTimetableEntries(authoritativeEntries);
         stateRef.current.timetableEntries = authoritativeEntries;
         safeSetItem(KEYS.TIMETABLE, JSON.stringify(authoritativeEntries));
@@ -969,56 +994,56 @@ export default function App() {
     setStudents(updated);
     stateRef.current.students = updated;
     safeSetItem(KEYS.STUDENTS, JSON.stringify(updated));
-    triggerAutoSave({ students: updated });
+    triggerAutoSave({ students: updated }, true);
   };
 
   const updateFeeStructuresState = (updated: FeeStructure[]) => {
     setFeeStructures(updated);
     stateRef.current.feeStructures = updated;
     safeSetItem(KEYS.FEE_STRUCTURES, JSON.stringify(updated));
-    triggerAutoSave({ feeStructures: updated });
+    triggerAutoSave({ feeStructures: updated }, true);
   };
 
   const updateInvoicesState = (updated: Invoice[]) => {
     setInvoices(updated);
     stateRef.current.invoices = updated;
     safeSetItem(KEYS.INVOICES, JSON.stringify(updated));
-    triggerAutoSave({ invoices: updated });
+    triggerAutoSave({ invoices: updated }, true);
   };
 
   const updatePaymentsState = (updated: PaymentTransaction[]) => {
     setPayments(updated);
     stateRef.current.payments = updated;
     safeSetItem(KEYS.PAYMENTS, JSON.stringify(updated));
-    triggerAutoSave({ payments: updated });
+    triggerAutoSave({ payments: updated }, true);
   };
 
   const updateInstallmentPlansState = (updated: InstallmentPlan[]) => {
     setInstallmentPlans(updated);
     stateRef.current.installmentPlans = updated;
     safeSetItem(KEYS.INSTALLMENT_PLANS, JSON.stringify(updated));
-    triggerAutoSave({ installmentPlans: updated });
+    triggerAutoSave({ installmentPlans: updated }, true);
   };
 
   const updateFeeAuditLogsState = (updated: FeeAuditLog[]) => {
     setFeeAuditLogs(updated);
     stateRef.current.feeAuditLogs = updated;
     safeSetItem(KEYS.FEE_AUDIT_LOGS, JSON.stringify(updated));
-    triggerAutoSave({ feeAuditLogs: updated });
+    triggerAutoSave({ feeAuditLogs: updated }, true);
   };
 
   const updateAdmissionApplicationsState = (updated: AdmissionApplication[]) => {
     setAdmissionApplications(updated);
     stateRef.current.admissionApplications = updated;
     safeSetItem(KEYS.ADMISSION_APPLICATIONS, JSON.stringify(updated));
-    triggerAutoSave({ admissionApplications: updated });
+    triggerAutoSave({ admissionApplications: updated }, true);
   };
 
   const updateExamMarksState = (updated: ExamMark[]) => {
     setExamMarks(updated);
     stateRef.current.examMarks = updated;
     safeSetItem(KEYS.EXAM_MARKS, JSON.stringify(updated));
-    triggerAutoSave({ examMarks: updated });
+    triggerAutoSave({ examMarks: updated }, true);
   };
 
   const updateWebsiteConfigState = (updated: WebsiteConfig) => {

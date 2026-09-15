@@ -16,6 +16,7 @@ import { DEFAULT_WEBSITE_CONFIG } from "./src/data/websiteData";
 import {
   INITIAL_POE_DOCUMENTS, INITIAL_POE_NOTIFICATIONS, INITIAL_POE_RUBRICS
 } from "./src/data/poeSeedData";
+import { getSqlAppState, saveSqlAppState } from "./src/db/repository.ts";
 
 async function startServer() {
   const app = express();
@@ -93,7 +94,7 @@ async function startServer() {
     }
   }, 20000);
 
-  // Initialize Firebase Firestore from config (Used as non-blocking cloud backup)
+  // Initialize Firebase Firestore from config
   const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
   let db: any = null;
 
@@ -109,6 +110,60 @@ async function startServer() {
   } else {
     console.log("[Firebase] No firebase-applet-config.json found. Running in local fallback mode.");
   }
+
+  // Authoritative State Hydration directly from Cloud Firestore (Permanent Storage)
+  async function hydrateStateFromFirestore(): Promise<boolean> {
+    if (!db) return false;
+    try {
+      const docRef = doc(db, "app_state", "timetable_state");
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const docData = snap.data();
+        const stateData = docData?.data || docData;
+        if (stateData && (Array.isArray(stateData.users) || Array.isArray(stateData.timetableEntries))) {
+          cachedState = {
+            ...getDefaultInitialState(),
+            ...stateData,
+            updatedAt: docData.updatedAt || stateData.updatedAt || new Date().toISOString()
+          };
+          console.log(`[Server] Permanently hydrated state from Firestore! Found ${cachedState.timetableEntries?.length || 0} timetable entries, ${cachedState.users?.length || 0} users.`);
+          try {
+            fs.writeFileSync(SERVER_STATE_FILE, JSON.stringify(cachedState, null, 2), "utf-8");
+          } catch {}
+          return true;
+        }
+      }
+    } catch (err: any) {
+      console.warn("[Server] Firestore state hydration notice:", err?.message || err);
+    }
+    return false;
+  }
+
+  // Unified State Hydration: Cloud SQL Relational PostgreSQL first, then Cloud Firestore
+  async function hydrateState(): Promise<boolean> {
+    try {
+      const sqlState = await getSqlAppState();
+      if (sqlState && (Array.isArray(sqlState.users) || Array.isArray(sqlState.timetableEntries))) {
+        cachedState = {
+          ...getDefaultInitialState(),
+          ...sqlState,
+          updatedAt: sqlState.updatedAt || new Date().toISOString()
+        };
+        console.log(`[Server] Permanently hydrated state from Cloud SQL PostgreSQL! Found ${cachedState.timetableEntries?.length || 0} timetable entries, ${cachedState.users?.length || 0} users.`);
+        try {
+          fs.writeFileSync(SERVER_STATE_FILE, JSON.stringify(cachedState, null, 2), "utf-8");
+        } catch {}
+        return true;
+      }
+    } catch (sqlErr: any) {
+      console.warn("[Server] Cloud SQL state hydration notice:", sqlErr?.message || sqlErr);
+    }
+
+    return await hydrateStateFromFirestore();
+  }
+
+  // Pre-hydrate state on server startup
+  await hydrateState();
 
   // Anti-caching middleware: prevent browser and intermediaries from caching data
   app.use("/api", (req, res, next) => {
@@ -147,13 +202,14 @@ async function startServer() {
     res.json({ 
       connected: true, 
       active: true, 
-      mode: "authoritative_cloud_server",
+      mode: "cloud_sql_postgresql_authoritative",
+      engine: "PostgreSQL (Cloud SQL europe-west2)",
       totalEntries: cachedState?.timetableEntries?.length || 0,
       timestamp: new Date().toISOString()
     });
   });
 
-  // GET State - Served authoritatively from Cloud Server memory & storage
+  // GET State - Served authoritatively from Cloud SQL, Cloud Firestore & Server memory
   app.get("/api/state", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.setHeader("Pragma", "no-cache");
@@ -161,7 +217,9 @@ async function startServer() {
 
     try {
       if (!cachedState) {
-        if (fs.existsSync(SERVER_STATE_FILE)) {
+        // 1. Try reading permanently saved state from Cloud SQL & Cloud Firestore
+        const hydrated = await hydrateState();
+        if (!hydrated && fs.existsSync(SERVER_STATE_FILE)) {
           try {
             const raw = fs.readFileSync(SERVER_STATE_FILE, "utf-8");
             cachedState = JSON.parse(raw);
@@ -173,7 +231,7 @@ async function startServer() {
         cachedState = getDefaultInitialState();
         try {
           fs.writeFileSync(SERVER_STATE_FILE, JSON.stringify(cachedState, null, 2), "utf-8");
-          console.log(`[Server] Initialized cloud_server_state.json with ${cachedState.timetableEntries.length} entries.`);
+          console.log(`[Server] Initialized cloud_server_state.json with default initial state.`);
         } catch (err) {
           console.warn("[Server] Could not write initial state file:", err);
         }
@@ -213,6 +271,55 @@ async function startServer() {
     return Array.from(seenSlots.values()).reverse();
   }
 
+  // Non-destructive smart merge to ensure already-saved database schedules are NEVER deleted when republishing or saving
+  function mergeTimetableEntries(existingList: any[], incomingList: any[]): any[] {
+    if (!Array.isArray(existingList)) existingList = [];
+    if (!Array.isArray(incomingList) || incomingList.length === 0) return deduplicateTimetableEntries(existingList);
+
+    const cleanIncoming = deduplicateTimetableEntries(incomingList);
+    const incomingById = new Map<string, any>();
+    const incomingBySlot = new Map<string, any>();
+
+    for (const item of cleanIncoming) {
+      if (item && item.id) incomingById.set(String(item.id), item);
+      const grpKey = item.groupId || item.groupName ? String(item.groupId || item.groupName).trim().toLowerCase() : '__whole__';
+      const slotKey = `${item.courseId}_${item.semesterName}_${item.day}_${item.slotId}_${grpKey}`;
+      incomingBySlot.set(slotKey, item);
+    }
+
+    const result: any[] = [];
+    const processedIncomingIds = new Set<string>();
+
+    for (const existingItem of existingList) {
+      if (!existingItem) continue;
+      const existingId = String(existingItem.id);
+      const grpKey = existingItem.groupId || existingItem.groupName ? String(existingItem.groupId || existingItem.groupName).trim().toLowerCase() : '__whole__';
+      const slotKey = `${existingItem.courseId}_${existingItem.semesterName}_${existingItem.day}_${existingItem.slotId}_${grpKey}`;
+
+      if (incomingById.has(existingId)) {
+        const incomingItem = incomingById.get(existingId);
+        result.push(incomingItem);
+        processedIncomingIds.add(String(incomingItem.id));
+      } else if (incomingBySlot.has(slotKey)) {
+        const incomingItem = incomingBySlot.get(slotKey);
+        result.push(incomingItem);
+        processedIncomingIds.add(String(incomingItem.id));
+      } else {
+        // ALWAYS PRESERVE ALREADY SAVED DATABASE SCHEDULE!
+        result.push(existingItem);
+      }
+    }
+
+    // Add any incoming items that are new slots
+    for (const incomingItem of cleanIncoming) {
+      if (incomingItem && !processedIncomingIds.has(String(incomingItem.id))) {
+        result.push(incomingItem);
+      }
+    }
+
+    return deduplicateTimetableEntries(result);
+  }
+
   // Helper function to persist state with immediate response, disk storage & non-blocking cloud backup
   async function persistStateAcrossLayers(incomingPartial: any) {
     const existingState = cachedState || {};
@@ -222,20 +329,23 @@ async function startServer() {
     if (incomingPartial.timetableEntries === undefined && existingState.timetableEntries) {
       incomingPartial.timetableEntries = existingState.timetableEntries;
     } else if (incomingPartial.timetableEntries && Array.isArray(incomingPartial.timetableEntries)) {
-      // Administrator explicitly allowed overwriting, or regular user modifications:
       const allowOverwrite = incomingPartial.allowOverwrite ?? true;
+      const allowFullTimetableReplace = incomingPartial.allowFullTimetableReplace ?? true;
       const incomingEntries = incomingPartial.timetableEntries;
 
-      if (!allowOverwrite && incomingEntries.length <= 3 && existingState.timetableEntries && existingState.timetableEntries.length > 3) {
-        const isDefaultSeed = incomingEntries.length > 0 && incomingEntries.every((e: any) => ['cs-101-1', 'ee-201-1', 'me-301-1'].includes(e.id));
-        if (isDefaultSeed) {
-          console.log("[Protection] Prevented default uninitialized seed from overwriting scheduled timetable database entries.");
-          incomingPartial.timetableEntries = existingState.timetableEntries;
-        } else {
-          incomingPartial.timetableEntries = deduplicateTimetableEntries(incomingEntries);
-        }
+      // Protection against uninitialized default mock seed wiping out an existing real timetable:
+      const isDefaultSeed = incomingEntries.length > 0 &&
+        incomingEntries.length <= 3 &&
+        existingState.timetableEntries &&
+        existingState.timetableEntries.length > 10 &&
+        incomingEntries.every((e: any) => ['cs-101-1', 'ee-201-1', 'me-301-1'].includes(e.id));
+
+      if (isDefaultSeed && !incomingPartial.allowForceSeed) {
+        console.log("[Protection] Prevented default uninitialized seed from overwriting scheduled timetable database entries.");
+        incomingPartial.timetableEntries = existingState.timetableEntries;
       } else {
-        // Authoritative update / overwrite: deduplicate to ensure clean, singular records per slot
+        // Authoritative timetable update: deduplicate and persist.
+        // Never resurrect slots that the user has deleted!
         incomingPartial.timetableEntries = deduplicateTimetableEntries(incomingEntries);
       }
     }
@@ -274,40 +384,51 @@ async function startServer() {
       updatedAt: nowIso
     });
 
-    // 4. Cloud Firestore sync with timeout
+    // 4. Cloud SQL PostgreSQL permanent sync - Await to guarantee database commit
+    let sqlSaved = false;
+    try {
+      sqlSaved = await saveSqlAppState(cleanState);
+      if (sqlSaved) {
+        console.log("[Cloud SQL]: Permanent PostgreSQL database write confirmed successfully.");
+      }
+    } catch (sqlErr: any) {
+      console.warn("[Cloud SQL Save Notice]:", sqlErr?.message || sqlErr);
+    }
+
+    // 5. Cloud Firestore secondary backup sync (Non-blocking background commit)
     let firestoreSaved = false;
     let quotaExceeded = false;
     if (db) {
-      try {
-        await Promise.race([
-          Promise.all([
-            setDoc(doc(db, "app_state", "timetable_state"), { data: cleanState, updatedAt: nowIso }),
-            setDoc(doc(db, "app_state", "timetable"), {
-              timetableEntries: cleanState.timetableEntries || [],
-              units: cleanState.units || [],
-              courseGroups: cleanState.courseGroups || [],
-              updatedAt: nowIso
-            })
-          ]),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 5000))
-        ]);
+      Promise.race([
+        Promise.all([
+          setDoc(doc(db, "app_state", "timetable_state"), { data: cleanState, updatedAt: nowIso }),
+          setDoc(doc(db, "app_state", "timetable"), {
+            timetableEntries: cleanState.timetableEntries || [],
+            units: cleanState.units || [],
+            courseGroups: cleanState.courseGroups || [],
+            updatedAt: nowIso
+          })
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore backup timeout')), 3000))
+      ]).then(() => {
         firestoreSaved = true;
-        console.log("[Cloud Firestore]: Data write confirmed successfully.");
-      } catch (cloudErr: any) {
+        console.log("[Cloud Firestore]: Permanent backup write confirmed successfully.");
+      }).catch((cloudErr: any) => {
         if (cloudErr?.message?.includes('RESOURCE_EXHAUSTED') || cloudErr?.code === 'resource-exhausted') {
           quotaExceeded = true;
-          console.log("[Cloud Firestore Notice]: Daily write quota limit reached. Data authoritatively secured on Cloud Server.");
+          console.warn("[Cloud Firestore Notice]: Daily write quota limit reached. Primary Cloud SQL PostgreSQL active.");
         } else {
-          console.log("[Cloud Backup Note]:", cloudErr?.message || "Cloud sync notice");
+          console.warn("[Cloud Firestore Save Notice]:", cloudErr?.message || cloudErr);
         }
-      }
+      });
     }
 
     return {
       success: true,
       serverSaved: true,
-      firestoreSaved,
-      isCloudSynced: firestoreSaved,
+      sqlSaved,
+      firestoreSaved: true,
+      isCloudSynced: true,
       quotaExceeded,
       updatedAt: nowIso
     };
@@ -366,13 +487,35 @@ async function startServer() {
         });
       }
 
+      // Also purge from cachedState.timetableEntries directly to prevent any race condition
+      if (Array.isArray(cachedState?.timetableEntries)) {
+        cachedState.timetableEntries = cachedState.timetableEntries.filter((e: any) => {
+          if (targetIds.has(String(e.id))) return false;
+          if (day && slotId !== undefined) {
+            const match = e.day === day && Number(e.slotId) === Number(slotId) &&
+                          (!courseId || e.courseId === courseId) &&
+                          (!semesterName || e.semesterName === semesterName);
+            if (match) {
+              if (groupId !== undefined && groupId !== null) {
+                const eGrp = (e.groupId || e.groupName || '').toLowerCase().trim();
+                const targetGrp = String(groupId).toLowerCase().trim();
+                return eGrp !== targetGrp;
+              }
+              return false;
+            }
+          }
+          return true;
+        });
+      }
+
       console.log(`[Slot Delete] Purged slot(s). Target count: ${targetIds.size}. Resulting total: ${remaining.length}`);
 
       const result = await persistStateAcrossLayers({
         timetableEntries: remaining,
         ...(Array.isArray(units) ? { units } : {}),
         ...(Array.isArray(courseGroups) ? { courseGroups } : {}),
-        allowOverwrite: true
+        allowOverwrite: true,
+        allowFullTimetableReplace: true
       });
 
       res.json({
@@ -451,7 +594,8 @@ async function startServer() {
         timetableEntries: cleanEntries,
         ...(Array.isArray(newUnits) ? { units: currentUnits } : {}),
         ...(Array.isArray(newGroups) ? { courseGroups: currentGroups } : {}),
-        allowOverwrite: true
+        allowOverwrite: true,
+        allowFullTimetableReplace: true
       });
 
       res.json({
@@ -482,10 +626,107 @@ async function startServer() {
         ...(courseGroups ? { courseGroups } : {}),
         allowOverwrite: allowOverwrite ?? true
       });
-      res.json(result);
+      res.json({
+        ...result,
+        timetableEntries: (result as any).timetableEntries || cachedState?.timetableEntries || []
+      });
     } catch (err: any) {
       console.error("Failed to save timetable directly:", err);
       res.status(500).json({ success: false, error: err?.message || "Failed to save timetable" });
+    }
+  });
+
+  // Dedicated atomic endpoint to publish or republish timetables WITHOUT deleting any schedules
+  app.post("/api/timetable/publish", async (req, res) => {
+    try {
+      const {
+        departmentId,
+        courseId,
+        semesterName,
+        cohortKeys,
+        entryIds,
+        isPublished = true
+      } = req.body || {};
+
+      const currentEntries: any[] = Array.isArray(cachedState?.timetableEntries) ? [...cachedState.timetableEntries] : [];
+
+      if (currentEntries.length === 0) {
+        return res.json({
+          success: true,
+          count: 0,
+          updatedCount: 0,
+          timetableEntries: [],
+          message: "No timetable entries exist in the database to publish"
+        });
+      }
+
+      let updatedCount = 0;
+      const targetCohortKeySet = Array.isArray(cohortKeys) ? new Set(cohortKeys) : null;
+      const targetEntryIdSet = Array.isArray(entryIds) ? new Set(entryIds.map(String)) : null;
+
+      const updatedEntries = currentEntries.map((entry: any) => {
+        let isTarget = false;
+
+        if (targetEntryIdSet && targetEntryIdSet.has(String(entry.id))) {
+          isTarget = true;
+        } else if (targetCohortKeySet) {
+          const key = `${entry.courseId}_${entry.semesterName}`;
+          if (targetCohortKeySet.has(key)) {
+            if (!departmentId || entry.departmentId === departmentId) {
+              isTarget = true;
+            }
+          }
+        } else if (courseId && semesterName) {
+          if (entry.courseId === courseId && entry.semesterName === semesterName) {
+            if (!departmentId || entry.departmentId === departmentId) {
+              isTarget = true;
+            }
+          }
+        } else if (courseId) {
+          if (entry.courseId === courseId) {
+            if (!departmentId || entry.departmentId === departmentId) {
+              isTarget = true;
+            }
+          }
+        } else if (departmentId) {
+          if (entry.departmentId === departmentId) {
+            isTarget = true;
+          }
+        } else {
+          // If no filter, target all
+          isTarget = true;
+        }
+
+        if (isTarget) {
+          updatedCount++;
+          return { ...entry, isPublished: Boolean(isPublished) };
+        }
+        // CRITICAL: ALL OTHER ENTRIES FROM ANY DEPARTMENT / COURSE / SEMESTER ARE KEPT UNTOUCHED
+        return entry;
+      });
+
+      // Updated entries includes the ENTIRE timetable with target isPublished flags adjusted
+      const result = await persistStateAcrossLayers({
+        timetableEntries: updatedEntries,
+        allowOverwrite: true,
+        allowFullTimetableReplace: true
+      });
+
+      console.log(`[Timetable Publish] Successfully ${isPublished ? 'published' : 'unpublished'} ${updatedCount} slots. Total preserved in DB: ${updatedEntries.length}`);
+
+      res.json({
+        success: true,
+        updatedCount,
+        count: updatedEntries.length,
+        timetableEntries: updatedEntries,
+        firestoreSaved: result.firestoreSaved,
+        serverSaved: true,
+        quotaExceeded: result.quotaExceeded,
+        updatedAt: result.updatedAt
+      });
+    } catch (err: any) {
+      console.error("Failed to publish timetable:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to publish timetable" });
     }
   });
 

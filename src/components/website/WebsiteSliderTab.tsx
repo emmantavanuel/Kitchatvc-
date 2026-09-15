@@ -10,7 +10,7 @@ import { uploadMediaFile } from '../../lib/firebase';
 import { 
   Plus, Trash2, Edit2, Upload, Image as ImageIcon, Check, 
   X, Eye, ArrowUp, ArrowDown, Sparkles, ExternalLink, RefreshCw, 
-  Layers, Link2, CheckCircle2, ChevronRight, HelpCircle
+  Layers, Link2, CheckCircle2, ChevronRight, HelpCircle, Camera
 } from 'lucide-react';
 
 interface WebsiteSliderTabProps {
@@ -33,8 +33,15 @@ export default function WebsiteSliderTab({
   const [showPresetsModal, setShowPresetsModal] = useState(false);
   const [previewSlide, setPreviewSlide] = useState<WebsiteSliderSlide | null>(null);
 
+  // Drag-and-drop & card replacement states
+  const [isDragOverMain, setIsDragOverMain] = useState(false);
+  const [dragOverCardIdx, setDragOverCardIdx] = useState<number | null>(null);
+  const [isDragOverModal, setIsDragOverModal] = useState(false);
+  const [selectedCardIdx, setSelectedCardIdx] = useState<number | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
+  const cardFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Form states for new/editing slide
   const [slideTitle, setSlideTitle] = useState('');
@@ -105,6 +112,15 @@ export default function WebsiteSliderTab({
     } finally {
       setIsUploading(false);
     }
+  };
+
+  // Replace an existing card's image directly
+  const handleReplaceCardImage = (idx: number, file: File) => {
+    handleFileUpload(file, (url) => {
+      const currentSlides = formData.slides && formData.slides.length > 0 ? formData.slides : DEFAULT_WEBSITE_SLIDES;
+      const updated = currentSlides.map((s, i) => i === idx ? { ...s, imageUrl: url } : s);
+      setFormData(prev => ({ ...prev, slides: updated }));
+    });
   };
 
   // Save new or edited slide
@@ -311,26 +327,75 @@ export default function WebsiteSliderTab({
               setFormData(prev => ({ ...prev, slides: [...currentSlides, newSlide] }));
             });
           }
+          e.target.value = '';
+        }}
+      />
+
+      <input 
+        ref={cardFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && selectedCardIdx !== null) {
+            handleReplaceCardImage(selectedCardIdx, file);
+          }
+          e.target.value = '';
         }}
       />
 
       {/* Quick Image Upload Dropzone Banner */}
       <div 
         onClick={() => fileInputRef.current?.click()}
-        className="border-2 border-dashed border-[#DFCBB5] hover:border-[#BA8D5C] rounded-2xl p-6 bg-[#FAF7F2] hover:bg-[#F5EDE1] text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 group"
+        onDragOver={(e) => { e.preventDefault(); setIsDragOverMain(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setIsDragOverMain(false); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragOverMain(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) {
+            handleFileUpload(file, (url) => {
+              const currentSlides = formData.slides && formData.slides.length > 0 ? formData.slides : DEFAULT_WEBSITE_SLIDES;
+              const newSlide: WebsiteSliderSlide = {
+                id: `slide_${Date.now()}`,
+                imageUrl: url,
+                title: file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " "),
+                subtitle: 'Government-supported TVET institution offering modern competency-based modular training.',
+                badge: 'Kitutu Chache TVC • Excellence in Technical Training',
+                buttonText: 'Apply Online',
+                buttonAction: 'register',
+                secondaryButtonText: 'Explore Courses',
+                secondaryButtonAction: 'courses',
+                isActive: true,
+                order: currentSlides.length + 1
+              };
+              setFormData(prev => ({ ...prev, slides: [...currentSlides, newSlide] }));
+            });
+          }
+        }}
+        className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 group ${
+          isDragOverMain 
+            ? 'border-[#BA8D5C] bg-[#F5EDE1] scale-[1.01]' 
+            : 'border-[#DFCBB5] hover:border-[#BA8D5C] bg-[#FAF7F2] hover:bg-[#F5EDE1]'
+        }`}
       >
         <div className="w-12 h-12 rounded-full bg-white shadow-xs border border-[#EADBCA] flex items-center justify-center group-hover:scale-110 transition-transform">
           <Upload className="w-6 h-6 text-[#BA8D5C]" />
         </div>
         <div className="text-sm font-bold text-[#281A10]">
-          Click here to quickly upload an image from your computer / phone
+          Click here to select an image from your computer / phone, or drag & drop it here
         </div>
         <p className="text-xs text-[#6B5746] max-w-md">
           Supports PNG, JPG, JPEG, WEBP. Automatically optimized and compressed for lightning-fast loading on all trainee mobile devices.
         </p>
-        <span className="px-3 py-1 bg-white text-[#8F6335] text-[11px] font-black rounded-full border border-[#DFCBB5] shadow-2xs">
-          + Quick Upload Image
-        </span>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="px-3.5 py-1.5 bg-[#BA8D5C] hover:bg-[#A87948] text-white text-xs font-bold rounded-full shadow-xs flex items-center gap-1.5">
+            <Camera className="w-3.5 h-3.5" />
+            <span>+ Upload Slide Image</span>
+          </span>
+          <span className="text-[11px] text-slate-400">or drop image file anywhere in this box</span>
+        </div>
       </div>
 
       {/* Active Slides Cards Grid */}
@@ -359,7 +424,17 @@ export default function WebsiteSliderTab({
               }`}
             >
               {/* Image Preview with Badges */}
-              <div className="relative h-48 w-full bg-slate-900 overflow-hidden group">
+              <div 
+                className="relative h-48 w-full bg-slate-900 overflow-hidden group"
+                onDragOver={(e) => { e.preventDefault(); setDragOverCardIdx(idx); }}
+                onDragLeave={(e) => { e.preventDefault(); setDragOverCardIdx(null); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverCardIdx(null);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) handleReplaceCardImage(idx, file);
+                }}
+              >
                 <img 
                   src={slide.imageUrl} 
                   alt={slide.title} 
@@ -367,9 +442,17 @@ export default function WebsiteSliderTab({
                   referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+
+                {/* Card Drop Overlay */}
+                {dragOverCardIdx === idx && (
+                  <div className="absolute inset-0 z-20 bg-[#1E130B]/90 backdrop-blur-xs flex flex-col items-center justify-center text-white border-2 border-dashed border-[#C29563]">
+                    <Upload className="w-8 h-8 text-[#E2BE8D] mb-1 animate-bounce" />
+                    <span className="text-xs font-bold">Drop Image to Replace Slide #{idx + 1}</span>
+                  </div>
+                )}
                 
                 {/* Order Badge */}
-                <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
                   <span className="px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md text-white font-mono text-xs font-bold border border-white/20">
                     Slide #{idx + 1}
                   </span>
@@ -380,8 +463,20 @@ export default function WebsiteSliderTab({
                   )}
                 </div>
 
-                {/* Move & Action Controls on Top Right */}
-                <div className="absolute top-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-md p-1 rounded-lg border border-white/20">
+                {/* Change Photo & Move Controls on Top Right */}
+                <div className="absolute top-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-md p-1 rounded-lg border border-white/20 z-10">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCardIdx(idx);
+                      cardFileInputRef.current?.click();
+                    }}
+                    className="px-2 py-1 bg-[#BA8D5C] hover:bg-[#A87948] text-white rounded text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer shadow"
+                    title="Upload new image file for this slide"
+                  >
+                    <Camera className="w-3 h-3" />
+                    <span>Upload Photo</span>
+                  </button>
                   <button
                     onClick={() => handleMoveUp(idx)}
                     disabled={idx === 0}
@@ -500,18 +595,39 @@ export default function WebsiteSliderTab({
 
                 {/* Image Preview & Upload Controls */}
                 <div className="flex flex-col sm:flex-row gap-4 items-start">
-                  <div className="relative w-full sm:w-48 h-32 bg-slate-100 rounded-xl overflow-hidden border border-[#E0CCB8] shrink-0">
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOverModal(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); setIsDragOverModal(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOverModal(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) handleFileUpload(file, setSlideImageUrl);
+                    }}
+                    onClick={() => editFileInputRef.current?.click()}
+                    className={`relative w-full sm:w-48 h-32 bg-slate-100 rounded-xl overflow-hidden border-2 transition-all cursor-pointer shrink-0 group ${
+                      isDragOverModal 
+                        ? 'border-[#BA8D5C] ring-2 ring-[#BA8D5C]/30 bg-[#FAF4EC]' 
+                        : 'border-[#E0CCB8] hover:border-[#BA8D5C]'
+                    }`}
+                  >
                     {slideImageUrl ? (
-                      <img 
-                        src={slideImageUrl} 
-                        alt="Slide preview" 
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
+                      <>
+                        <img 
+                          src={slideImageUrl} 
+                          alt="Slide preview" 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[11px] font-bold gap-1">
+                          <Camera className="w-5 h-5" />
+                          <span>Change Photo</span>
+                        </div>
+                      </>
                     ) : (
                       <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 p-2 text-center text-xs">
                         <ImageIcon className="w-8 h-8 mb-1 text-slate-300" />
-                        <span>No image selected</span>
+                        <span>Drop or click to upload</span>
                       </div>
                     )}
                   </div>
